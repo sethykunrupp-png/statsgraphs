@@ -1,0 +1,1836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>3D Statistical Data Evolution</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050510;
+            --cyan: #00ffff;
+            --ink: #e9f6ff;
+            --muted: #8fb3c7;
+            --panel: rgba(4, 8, 22, 0.72);
+            --line: rgba(0, 255, 255, 0.35);
+            box-sizing: border-box;
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
+        html, body { height: 100%; }
+        body { margin: 0; overflow: hidden; background-color: var(--bg); color: var(--ink);
+               font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+        canvas { display: block; position: fixed; inset: 0; }
+
+        #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+              width: min(430px, calc(100% - 32px)); box-sizing: border-box;
+              background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+              border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+              backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+              pointer-events: none; z-index: 10; }
+        #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+        #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+                  color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); }
+        #note { font-size: 13.5px; line-height: 1.5; color: var(--ink); opacity: 0.92; }
+        #stats { font-size: 13px; line-height: 1.6; margin-top: 9px; padding-top: 9px;
+                 border-top: 1px solid rgba(0,255,255,0.18); }
+        #stats:empty { display: none; }
+        #stats .eq { font-weight: 500; color: #ffb454; }
+        #stats .dim { color: var(--muted); }
+        .chip { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: baseline; }
+        .key { display: inline-block; width: 14px; height: 3px; margin: 0 5px 3px 0; vertical-align: middle; border-radius: 2px; }
+        #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+        #error:empty { display: none; }
+
+        #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+               padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+               background: linear-gradient(to top, rgba(5,5,16,0.9), rgba(5,5,16,0)); }
+        #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+        #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+        #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+        #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+        #progress button.done i { width: 100%; opacity: 0.55; }
+        #progress button:hover span { background: rgba(0,255,255,0.32); }
+        #controls { display: flex; align-items: center; gap: 8px; }
+        #controls button { width: 36px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+                           background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+        #controls button:hover { background: rgba(0,255,255,0.14); }
+        button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+        #controls svg { width: 14px; height: 14px; fill: currentColor; }
+        #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+        body.compact #note, body.compact #stats { display: none; }
+
+        /* contents screen */
+        #toc { position: fixed; inset: 0; z-index: 20; display: none; overflow-y: auto; box-sizing: border-box;
+               background: rgba(5, 5, 16, 0.80); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+               padding: calc(28px + env(safe-area-inset-top, 0px)) 28px calc(28px + env(safe-area-inset-bottom, 0px)); }
+        #toc.open { display: block; }
+        #tocInner { max-width: 1080px; margin: 0 auto; }
+        #toc h1 { font-size: clamp(24px, 4vw, 38px); font-weight: 600; line-height: 1.15; margin: 0 0 6px; color: var(--cyan); text-shadow: 0 0 14px rgba(0,255,255,0.5); }
+        #tocSub { margin: 0 0 18px; font-size: 14px; color: var(--muted); max-width: 60ch; line-height: 1.5; }
+        #tocActions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+        #tocActions button { font: inherit; font-size: 14px; font-weight: 500; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+                             border: 1px solid var(--line); background: var(--panel); color: var(--cyan); }
+        #tocActions button.primary { background: var(--cyan); color: #04121c; border-color: var(--cyan); }
+        #tocActions button:hover { box-shadow: 0 0 14px rgba(0,255,255,0.35); }
+        #tocList { columns: 3 270px; column-gap: 34px; }
+        .tocCh { break-inside: avoid; margin: 0 0 22px; }
+        .tocCh h2 { font-size: 14px; font-weight: 600; color: var(--cyan); margin: 0 0 6px; padding-bottom: 5px; border-bottom: 1px solid rgba(0,255,255,0.22); }
+        .tocCh h2 span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+        .tocCh button { display: flex; gap: 8px; width: 100%; text-align: left; font: inherit; font-size: 13.5px; line-height: 1.35;
+                        padding: 4px 6px; margin: 0 -6px; border: 0; border-radius: 5px; background: none; color: var(--ink); cursor: pointer; }
+        .tocCh button i { font-style: normal; color: var(--muted); min-width: 1.6em; text-align: right; }
+        .tocCh button:hover { background: rgba(0,255,255,0.12); color: #fff; }
+        .tocCh button.cur { background: rgba(0,255,255,0.16); color: var(--cyan); }
+        @media (max-width: 560px) { #toc { padding-left: 16px; padding-right: 16px; } }
+        @media (max-width: 560px) {
+            #hint { display: none; }
+            #ui { top: calc(10px + env(safe-area-inset-top, 0px)); left: 10px; width: calc(100% - 20px); padding: 10px 12px 11px; }
+            #status { font-size: 17px; margin-bottom: 5px; }
+            #note { font-size: 12.5px; line-height: 1.4; }
+            #stats { font-size: 12px; line-height: 1.5; margin-top: 7px; padding-top: 7px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="chapter"></div>
+        <div id="status">Initializing...</div>
+        <div id="note"></div>
+        <div id="stats"></div>
+        <div id="error"></div>
+    </div>
+
+    <div id="toc" role="dialog" aria-modal="true" aria-label="Contents">
+        <div id="tocInner">
+            <h1>3D Statistical Data Evolution</h1>
+            <p id="tocSub"></p>
+            <div id="tocActions">
+                <button id="tocStart" class="primary">Start from scene 1</button>
+                <button id="tocClose">Close contents</button>
+            </div>
+            <div id="tocList"></div>
+        </div>
+    </div>
+
+    <div id="bar">
+        <div id="progress"></div>
+        <div id="controls">
+            <button id="contents" aria-label="Open contents" title="Contents (C)"><svg viewBox="0 0 16 16"><path d="M1 3h2v2H1zM5 3h10v2H5zM1 7h2v2H1zM5 7h10v2H5zM1 11h2v2H1zM5 11h10v2H5z"/></svg></button>
+            <button id="prev" aria-label="Previous scene"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM14 2v12L6 8z"/></svg></button>
+            <button id="play" aria-label="Pause"><svg viewBox="0 0 16 16"><path id="playIcon" d="M3 2h4v12H3zM9 2h4v12H9z"/></svg></button>
+            <button id="next" aria-label="Next scene"><svg viewBox="0 0 16 16"><path d="M11 2h2v12h-2zM2 2v12l8-6z"/></svg></button>
+            <button id="notes" aria-label="Hide notes" title="Show or hide the notes (N)"><svg viewBox="0 0 16 16"><path d="M2 3h12v2H2zM2 7h12v2H2zM2 11h8v2H2z"/></svg></button>
+            <button id="glow" aria-label="Turn glow off" title="Glow on or off (G)"><svg viewBox="0 0 16 16"><path d="M8 4a4 4 0 100 8 4 4 0 000-8zM7 0h2v3H7zM7 13h2v3H7zM0 7h3v2H0zM13 7h3v2h-3z"/></svg></button>
+            <span id="hint">C for contents, Space to pause, arrow keys to change scene, drag to orbit</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Optional glow (bloom). If any of these fail to load the animation still runs without it. -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <script>
+        try {
+            if (!window.THREE) throw new Error("Three.js failed to load. Check your internet connection.");
+
+            // ================= RENDERER, CAMERA, GLOW =================
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x050510);
+            document.body.appendChild(renderer.domElement);
+
+            let composer = null;
+            try {
+                if (THREE.EffectComposer && THREE.RenderPass && THREE.UnrealBloomPass) {
+                    composer = new THREE.EffectComposer(renderer);
+                    composer.addPass(new THREE.RenderPass(scene, camera));
+                    composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 0.22));
+                }
+            } catch (e) { composer = null; console.warn("Bloom disabled:", e); }
+
+            const controls = THREE.OrbitControls
+                ? new THREE.OrbitControls(camera, renderer.domElement)
+                : { update() {}, target: new THREE.Vector3(), addEventListener() {} };
+            controls.enableDamping = true;
+            controls.target.set(0, 0, 0);
+            let userCam = false;                       // true once the viewer drags; released at the next scene
+            controls.addEventListener('start', () => { userCam = true; });
+
+            function camDist() { return Math.max(30, 17 / (0.577 * camera.aspect)); }
+            camera.position.set(0, 3, camDist());
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+
+            // Backdrop: faint star field
+            (function () {
+                const n = 1400, pos = new Float32Array(n * 3);
+                for (let i = 0; i < n; i++) {
+                    const r = 140 + Math.random() * 160, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+                    pos[i * 3] = r * Math.sin(ph) * Math.cos(th); pos[i * 3 + 1] = r * Math.cos(ph); pos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+                }
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                const stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x7fa8d8, size: 0.7, transparent: true, opacity: 0.55 }));
+                stars.name = 'stars';
+                scene.add(stars);
+            })();
+            const stars = scene.getObjectByName('stars');
+
+            // Wall grid (behind 2D plots) and floor grid (under the 3D panel view)
+            const gridHelper = new THREE.GridHelper(60, 30, 0x0a4a66, 0x06283a);
+            gridHelper.rotation.x = Math.PI / 2;
+            gridHelper.position.z = -0.6;
+            gridHelper.visible = false;
+            scene.add(gridHelper);
+            const floorGrid = new THREE.GridHelper(60, 30, 0x0a4a66, 0x06283a);
+            floorGrid.position.y = -9;
+            floorGrid.visible = false;
+            scene.add(floorGrid);
+
+            // ================= STATISTICS HELPERS =================
+            // Box-Muller standard normal
+            function randn() {
+                let u = 0, v = 0;
+                while (u === 0) u = Math.random();
+                while (v === 0) v = Math.random();
+                return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            }
+            function normalPDF(x, mean, stdDev) {
+                const exp = -0.5 * Math.pow((x - mean) / stdDev, 2);
+                return (1 / (stdDev * Math.sqrt(2 * Math.PI))) * Math.exp(exp);
+            }
+            const sum = a => a.reduce((s, v) => s + v, 0);
+            const mean = a => sum(a) / a.length;
+            // FIX: sample standard deviation divides by n - 1 (the data are a sample, not the population)
+            function sampleSD(a, m) { return Math.sqrt(a.reduce((s, v) => s + (v - m) * (v - m), 0) / (a.length - 1)); }
+            // FIX: for an even n the median is the average of the two middle values (input must be sorted)
+            function median(sorted) {
+                const n = sorted.length, h = Math.floor(n / 2);
+                return n % 2 ? sorted[h] : (sorted[h - 1] + sorted[h]) / 2;
+            }
+            function pearson(xs, ys) {
+                const mx = mean(xs), my = mean(ys);
+                let sxy = 0, sxx = 0, syy = 0;
+                for (let i = 0; i < xs.length; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+                return sxy / Math.sqrt(sxx * syy);
+            }
+            // Solve A b = v by Gaussian elimination with partial pivoting
+            function solve(A, v) {
+                const n = v.length, M = A.map((r, i) => r.concat([v[i]]));
+                for (let c = 0; c < n; c++) {
+                    let p = c;
+                    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+                    [M[c], M[p]] = [M[p], M[c]];
+                    for (let r = c + 1; r < n; r++) {
+                        const f = M[r][c] / M[c][c];
+                        for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+                    }
+                }
+                const b = new Array(n).fill(0);
+                for (let r = n - 1; r >= 0; r--) {
+                    let s = M[r][n];
+                    for (let k = r + 1; k < n; k++) s -= M[r][k] * b[k];
+                    b[r] = s / M[r][r];
+                }
+                return b;
+            }
+            // FIX: fitted lines are now ESTIMATED from the data by least squares
+            // (the old version drew the true generating formula and called it "best fit").
+            function lsq(xs, ys, basis) {
+                const p = basis.length, A = [], v = new Array(p).fill(0);
+                for (let j = 0; j < p; j++) A.push(new Array(p).fill(0));
+                for (let i = 0; i < xs.length; i++) {
+                    const phi = basis.map(fn => fn(xs[i]));
+                    for (let j = 0; j < p; j++) { v[j] += phi[j] * ys[i]; for (let k = 0; k < p; k++) A[j][k] += phi[j] * phi[k]; }
+                }
+                const beta = solve(A, v);
+                const f = x => basis.reduce((s, fn, j) => s + beta[j] * fn(x), 0);
+                const my = mean(ys);
+                let sse = 0, sst = 0;
+                for (let i = 0; i < xs.length; i++) { sse += (ys[i] - f(xs[i])) ** 2; sst += (ys[i] - my) ** 2; }
+                return { beta, f, sse, r2: 1 - sse / sst };
+            }
+            // Non-linear least squares with one non-linear parameter: search it on a grid,
+            // solve the remaining (linear) coefficients exactly, keep the smallest SSE.
+            function gridFit(xs, ys, lo, hi, step, makeBasis) {
+                let best = null;
+                for (let q = lo; q <= hi + 1e-9; q += step) {
+                    const fit = lsq(xs, ys, makeBasis(q));
+                    if (!best || fit.sse < best.sse) { best = fit; best.q = q; }
+                }
+                return best;
+            }
+            const num = (v, d = 2) => (Math.abs(v) < 0.5 * Math.pow(10, -d) ? 0 : v).toFixed(d).replace('-', '\u2212');
+            const signed = (v, d = 2) => (v < 0 ? '\u2212 ' : '+ ') + Math.abs(v).toFixed(d);
+
+            // quantile by linear interpolation between order statistics (input must be sorted)
+            function quantile(sorted, p) {
+                const h = (sorted.length - 1) * p, lo = Math.floor(h), hi = Math.ceil(h);
+                return sorted[lo] + (sorted[hi] - sorted[lo]) * (h - lo);
+            }
+            function normalCDF(z) {
+                const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989422804 * Math.exp(-z * z / 2);
+                const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+                return z > 0 ? 1 - p : p;
+            }
+            function invertCDF(cdf, p, lo, hi) {            // bisection
+                for (let k = 0; k < 48; k++) { const mid = (lo + hi) / 2; if (cdf(mid) < p) lo = mid; else hi = mid; }
+                return (lo + hi) / 2;
+            }
+            function lgamma(x) {                             // Lanczos approximation
+                const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+                           -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+                x -= 1;
+                let a = c[0];
+                const t = x + 7.5;
+                for (let i = 1; i < 9; i++) a += c[i] / (x + i);
+                return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+            }
+            // Student t distribution with df degrees of freedom
+            function tDist(df) {
+                const k = Math.exp(lgamma((df + 1) / 2) - lgamma(df / 2)) / Math.sqrt(df * Math.PI);
+                const pdf = x => k * Math.pow(1 + x * x / df, -(df + 1) / 2);
+                const cdf = x => {                           // Simpson's rule from 0 to |x|
+                    const n = 200, h = Math.abs(x) / n;
+                    let acc = pdf(0) + pdf(Math.abs(x));
+                    for (let i = 1; i < n; i++) acc += pdf(i * h) * (i % 2 ? 4 : 2);
+                    const area = acc * h / 3;
+                    return x >= 0 ? 0.5 + area : 0.5 - area;
+                };
+                return { pdf, cdf, inv: p => invertCDF(cdf, p, -12, 12) };
+            }
+
+            // ================= THE 150 POINTS =================
+            const totalPoints = 150, perGroup = 50;
+            const xScale = 0.8;      // world units per data unit on the distribution axis
+            const BASE = -4;         // baseline of the dot plots
+            const DOT = 0.6;         // one dot = one observation = 0.6 world units of height
+            const BIN = 0.75;        // histogram bin width (data units) -> 0.6 world units = one dot wide
+            const groupConfigs = [
+                { mean: -10.0, color: 0x8800ff, css: '#b061ff' },
+                { mean: 0.0,   color: 0x00ffff, css: '#00ffff' },
+                { mean: 9.6,   color: 0x00ff00, css: '#3dff3d' }
+            ];
+            const CYAN = 0x00ffff, RED = 0xff2a2a, ORANGE = 0xff8800, YELLOW = 0xffe14d, PINK = 0xff3d88, BLUE = 0x2a9dff;
+            const CATS = [
+                { name: 'A', p: 0.15, color: 0x8800ff, css: '#b061ff' },
+                { name: 'B', p: 0.25, color: 0x00ffff, css: '#00ffff' },
+                { name: 'C', p: 0.40, color: 0x00ff00, css: '#3dff3d' },
+                { name: 'D', p: 0.20, color: 0xffaa00, css: '#ffb733' }
+            ];
+            const CTRL = 0x00ffff, TRT = 0xff6a00, ARM = [{ name: 'control', color: CTRL, css: '#00ffff' }, { name: 'treatment', color: TRT, css: '#ff8a3d' }];
+            // standard normal quantiles for a sample of 50 (used by the Q-Q plot)
+            const QN = [];
+            for (let k = 0; k < perGroup; k++) QN.push(invertCDF(normalCDF, (k + 0.5) / perGroup, -6, 6));
+
+            const spheres = [];
+            const sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
+            const baseMat = new THREE.MeshStandardMaterial({ color: CYAN, emissive: CYAN, emissiveIntensity: 0.55, roughness: 0.4 });
+            for (let i = 0; i < totalPoints; i++) {
+                const sphere = new THREE.Mesh(sphereGeo, baseMat.clone());
+                sphere.position.set((Math.random() - 0.5) * 50, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 20);
+                sphere.userData = { home: sphere.position.clone(), target: sphere.position.clone(),
+                                    col: new THREE.Color(CYAN), scale: 1, pulse: false, delay: 0 };
+                scene.add(sphere);
+                spheres.push(sphere);
+            }
+
+            // ================= DATA GENERATION (once per loop, never per frame) =================
+            // FIX: the old version re-drew the random noise on every frame, so the "data" never
+            // held still and the residual lines measured a moving target.
+            let D = null;
+
+            function makeDistributions() {
+                const planted = Math.random() < 0.5 ? 0 : 2;   // one genuinely extreme value, on an outer edge
+                const stacks = {}, pos = [], val = [], flagged = [];
+                const groups = groupConfigs.map((cfg, g) => {
+                    const v = [];
+                    for (let k = 0; k < perGroup; k++) v.push(randn() * 2.0 + cfg.mean);
+                    if (g === planted) v[0] = cfg.mean + (g === 0 ? -1 : 1) * 2.0 * (3.8 + Math.random() * 0.8);
+                    v.sort((a, b) => a - b);
+                    const m = mean(v), s = sampleSD(v, m), med = median(v);
+                    v.forEach((x, k) => {
+                        const i = g * perGroup + k, bin = Math.floor(x / BIN), c = stacks[bin] || 0;
+                        stacks[bin] = c + 1;
+                        // FIX: a data value has no "height". Dots are stacked where they fall, so the
+                        // bell shape emerges from counts instead of being forced onto the formula.
+                        pos[i] = new THREE.Vector3(x * xScale, BASE + DOT * (c + 0.5), 0);
+                        val[i] = x;
+                        flagged[i] = Math.abs(x - m) / s > 2.5;
+                    });
+                    const q1 = quantile(v, 0.25), q3 = quantile(v, 0.75), iqr = q3 - q1, lf = q1 - 1.5 * iqr, uf = q3 + 1.5 * iqr;
+                    const inside = v.filter(x => x >= lf && x <= uf);
+                    return { v, n: v.length, mean: m, median: med, sd: s, variance: s * s, devSum: sum(v.map(x => x - m)),
+                             box: { q1, q3, lf, uf, wlo: inside[0], whi: inside[inside.length - 1] } };
+                });
+                // one-way ANOVA: between-group vs within-group variation
+                const grand = mean(val);
+                const ssb = sum(groups.map(g => g.n * (g.mean - grand) ** 2)), ssw = sum(groups.map(g => (g.n - 1) * g.variance));
+                const dfb = groups.length - 1, dfw = val.length - groups.length;
+                return { groups, pos, val, flagged, planted, stacks, anova: { grand, ssb, ssw, dfb, dfw, F: (ssb / dfb) / (ssw / dfw) } };
+            }
+
+            function makeScatter(xs, truth, sd, fitter) {
+                const ys = xs.map(x => truth(x) + randn() * sd);
+                const fit = fitter(xs, ys);
+                return { x: xs, y: ys, fit, r: pearson(xs, ys) };
+            }
+
+            function makeTimeSeries() {
+                // trend + season + AR(1) noise: neighbouring errors are correlated, as in real series
+                const x = [], y = [];
+                let e = 0;
+                for (let i = 0; i < totalPoints; i++) {
+                    const t = -10 + 20 * i / (totalPoints - 1);
+                    e = 0.6 * e + randn() * 0.7;
+                    x.push(t); y.push(0.5 * t + 3 * Math.sin(0.8 * t) + e);
+                }
+                const fit = lsq(x, y, [() => 1, t => t]);
+                // centred moving average over one full season (59 points) removes the cycle
+                const w = 59, h = (w - 1) / 2, ma = [];
+                for (let i = h; i < totalPoints - h; i++) ma.push({ x: x[i], y: mean(y.slice(i - h, i + h + 1)) });
+                const res = y.map((v, i) => v - fit.f(x[i]));
+                const r1 = pearson(res.slice(0, -1), res.slice(1));
+                // autocorrelation of the detrended series at lags 3, 6, ..., 90
+                const den = sum(res.map(v => v * v)), acf = [];
+                for (let lag = 3; lag <= 90; lag += 3) {
+                    let c = 0;
+                    for (let i = 0; i + lag < res.length; i++) c += res[i] * res[i + lag];
+                    acf.push({ lag, r: c / den });
+                }
+                return { x, y, fit, ma, r1, acf, bound: 1.96 / Math.sqrt(totalPoints) };
+            }
+
+            function makePanel() {
+                // balanced panel: N = 3 entities observed at the same T = 50 periods
+                const spec = [{ a: 0, b: 0.6 }, { a: 1, b: 0 }, { a: 0, b: -0.7 }];
+                const pos = [], allX = [], allY = [];
+                const entities = spec.map((sp, g) => {
+                    const x = [], y = [];
+                    for (let k = 0; k < perGroup; k++) {
+                        const t = -10 + 20 * k / (perGroup - 1), v = sp.a + sp.b * t + randn() * 0.7;
+                        x.push(t); y.push(v); allX.push(t); allY.push(v);
+                        pos[g * perGroup + k] = new THREE.Vector3(t, v, (g - 1) * 8);
+                    }
+                    return { x, y, z: (g - 1) * 8, fit: lsq(x, y, [() => 1, t => t]) };
+                });
+                return { pos, entities, pooled: lsq(allX, allY, [() => 1, t => t]) };
+            }
+
+            // stack values into a dot plot: one dot per observation, piled up inside its bin
+            function stackDots(values, toX, binW, base) {
+                const st = {};
+                return values.map(v => {
+                    const b = Math.floor(v / binW), c = st[b] || 0;
+                    st[b] = c + 1;
+                    return new THREE.Vector3(toX(v), base + DOT * (c + 0.5), 0);
+                });
+            }
+            const asc = (a, b) => a - b;
+
+            function makeCategories() {
+                const counts = CATS.map(() => 0);
+                for (let i = 0; i < totalPoints; i++) {
+                    let u = Math.random(), c = 0;
+                    while (c < CATS.length - 1 && u > CATS[c].p) { u -= CATS[c].p; c++; }
+                    counts[c]++;
+                }
+                const cat = [], idx = [];
+                counts.forEach((n, c) => { for (let j = 0; j < n; j++) { cat.push(c); idx.push(j); } });
+                const expected = totalPoints / CATS.length;          // H0: all categories equally common
+                return { counts, cat, idx, expected, chi2: sum(counts.map(o => (o - expected) ** 2 / expected)) };
+            }
+
+            function makeSampling() {
+                // right-skewed population: exponential with mean 4 (so sigma = 4 as well)
+                const draw = () => -Math.log(1 - Math.random()) * 4;
+                const pop = [], means = [];
+                for (let i = 0; i < totalPoints; i++) pop.push(draw());
+                for (let i = 0; i < totalPoints; i++) { let a = 0; for (let k = 0; k < 30; k++) a += draw(); means.push(a / 30); }
+                pop.sort(asc); means.sort(asc);
+                const mm = mean(means);
+                return { pop, means, popMean: mean(pop), popMedian: median(pop), meanOfMeans: mm, sdOfMeans: sampleSD(means, mm), se: 4 / Math.sqrt(30),
+                         popPos: stackDots(pop, v => -6 + v * 1.2, 0.5, -7), meansPos: stackDots(means, m => (m - 4) * 4, 0.15, -5) };
+            }
+
+            function makeIntervals() {
+                // 50 samples of n = 20 from Normal(mu = 0, sigma = 2); 95% t-interval for each
+                const tcrit = tDist(19).inv(0.975), list = [];
+                for (let i = 0; i < 50; i++) {
+                    const v = [];
+                    for (let k = 0; k < 20; k++) v.push(randn() * 2);
+                    const m = mean(v), half = tcrit * sampleSD(v, m) / Math.sqrt(20);
+                    list.push({ m, lo: m - half, hi: m + half, cover: m - half <= 0 && m + half >= 0 });
+                }
+                return { list, tcrit, covered: list.filter(c => c.cover).length };
+            }
+
+            function makeTwoGroups() {
+                const a = [], b = [], n = 75;
+                for (let i = 0; i < n; i++) { a.push(randn() * 2); b.push(randn() * 2 + 0.9); }
+                a.sort(asc); b.sort(asc);
+                const ma = mean(a), mb = mean(b), sa = sampleSD(a, ma), sb = sampleSD(b, mb);
+                // Welch's t-test (does not assume equal variances)
+                const va = sa * sa / n, vb = sb * sb / n, se = Math.sqrt(va + vb), t = (mb - ma) / se;
+                const df = (va + vb) ** 2 / (va * va / (n - 1) + vb * vb / (n - 1));
+                const dist = tDist(df), crit = dist.inv(0.975), p = 2 * (1 - dist.cdf(Math.abs(t)));
+                const tq = [];
+                for (let i = 0; i < totalPoints; i++) tq.push(dist.inv((i + 0.5) / totalPoints));
+                return { ma, mb, sa, sb, se, t, df, dist, crit, p, tq,
+                         pos: stackDots(a, v => v * 1.6, 0.375, 0).concat(stackDots(b, v => v * 1.6, 0.375, -6.5)),
+                         tPos: stackDots(tq, q => q * 3.2, 0.1875, -5) };
+            }
+
+            function makeMultiple() {
+                const pts = [], y = [];
+                for (let i = 0; i < totalPoints; i++) {
+                    const x1 = Math.random() * 16 - 8, x2 = Math.random() * 16 - 8;
+                    pts.push([x1, x2]); y.push(1 + 0.6 * x1 - 0.5 * x2 + randn() * 1.2);
+                }
+                const fit = lsq(pts, y, [() => 1, p => p[0], p => p[1]]);
+                return { pts, y, fit, adjR2: 1 - (1 - fit.r2) * (totalPoints - 1) / (totalPoints - 3) };
+            }
+
+            // ===== treatment / control datasets =====
+            // vertical "swarm": exact value on the y axis, dots pushed sideways when they would collide
+            function swarm(values, cx, toY) {
+                const st = {};
+                return values.map(v => {
+                    const y = toY(v), b = Math.floor(y / 0.6), c = st[b] || 0;
+                    st[b] = c + 1;
+                    return new THREE.Vector3(cx + (c % 2 ? 1 : -1) * Math.ceil(c / 2) * 0.6, y, 0);
+                });
+            }
+            function welch(a, b) {                      // difference b - a with Welch standard error
+                const ma = mean(a), mb = mean(b), sa = sampleSD(a, ma), sb = sampleSD(b, mb);
+                const va = sa * sa / a.length, vb = sb * sb / b.length, se = Math.sqrt(va + vb), diff = mb - ma;
+                const df = (va + vb) ** 2 / (va * va / (a.length - 1) + vb * vb / (b.length - 1));
+                const dist = tDist(df), crit = dist.inv(0.975);
+                return { ma, mb, sa, sb, diff, se, df, lo: diff - crit * se, hi: diff + crit * se, p: 2 * (1 - dist.cdf(Math.abs(diff / se))),
+                         d: diff / Math.sqrt(((a.length - 1) * sa * sa + (b.length - 1) * sb * sb) / (a.length + b.length - 2)) };
+            }
+
+            function makeRCT() {
+                // complete randomisation: shuffle the 150 units, first 75 -> control, rest -> treatment
+                const order = [];
+                for (let i = 0; i < totalPoints; i++) order.push(i);
+                for (let i = totalPoints - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+                const arm = [], rank = [], base = [], y = [];
+                order.forEach((i, r) => { arm[i] = r < 75 ? 0 : 1; rank[i] = r; });
+                for (let i = 0; i < totalPoints; i++) { base[i] = 50 + randn() * 10; y[i] = 25 + 0.5 * base[i] + 6 * arm[i] + randn() * 6; }   // true effect = 6
+                const gm = mean(y), basePos = [], outPos = [], ci = [];
+                const tc = tDist(74).inv(0.975);
+                [0, 1].forEach(a => {
+                    const idx = order.filter(i => arm[i] === a);
+                    const bp = stackDots(idx.map(i => base[i]), v => (a ? 8 : -8) + (v - 50) * 0.25, 2.4, -5);
+                    const op = swarm(idx.map(i => y[i]), a ? 6 : -6, v => (v - gm) * 0.35);
+                    idx.forEach((i, k) => { basePos[i] = bp[k]; outPos[i] = op[k]; });
+                    const ys = idx.map(i => y[i]), m = mean(ys), half = tc * sampleSD(ys, m) / Math.sqrt(ys.length);
+                    ci.push({ m, lo: m - half, hi: m + half, baseMean: mean(idx.map(i => base[i])) });
+                });
+                const w = welch(order.filter(i => !arm[i]).map(i => y[i]), order.filter(i => arm[i]).map(i => y[i]));
+                return { arm, rank, base, y, gm, basePos, outPos, ci, w };
+            }
+
+            function makeObservational() {
+                // no randomisation: units with a high baseline are more likely to take the treatment
+                const pts = [], y = [], arm = [];
+                for (let i = 0; i < totalPoints; i++) {
+                    const b = 50 + randn() * 10, a = Math.random() < 1 / (1 + Math.exp(-(b - 50) / 5)) ? 1 : 0;
+                    pts.push([b, a]); arm.push(a); y.push(25 + 0.5 * b + 6 * a + randn() * 5);          // true effect = 6
+                }
+                const y0 = y.filter((v, i) => !arm[i]), y1 = y.filter((v, i) => arm[i]);
+                const fit = lsq(pts, y, [() => 1, p => p[0], p => p[1]]);                                // y ~ baseline + treatment
+                return { pts, y, arm, gm: mean(y), fit, m0: mean(y0), m1: mean(y1), naive: mean(y1) - mean(y0), adjusted: fit.beta[2],
+                         b0: mean(pts.filter(p => !p[1]).map(p => p[0])), b1: mean(pts.filter(p => p[1]).map(p => p[0])) };
+            }
+
+            function makeDiD() {
+                // 2 groups x 15 periods x 5 units; treatment starts after period 8; true effect = 3
+                const val = [], pm = [[], []];
+                [0, 1].forEach(a => {
+                    const ue = [0, 1, 2, 3, 4].map(() => randn() * 0.5), sums = new Array(15).fill(0);
+                    for (let p = 0; p < 15; p++) for (let u = 0; u < 5; u++) {
+                        const v = (a ? 5 : 2) + 0.25 * p + ue[u] + (a && p >= 8 ? 3 : 0) + randn() * 0.5;
+                        val[a * 75 + p * 5 + u] = v; sums[p] += v / 5;
+                    }
+                    pm[a] = sums;
+                });
+                const pre = a => mean(pm[a].slice(0, 8)), post = a => mean(pm[a].slice(8));
+                const c = { Cpre: pre(0), Cpost: post(0), Tpre: pre(1), Tpost: post(1) };
+                c.did = (c.Tpost - c.Tpre) - (c.Cpost - c.Cpre);
+                return Object.assign(c, { val, pm });
+            }
+
+            function makeRD() {
+                // treated when the running variable reaches the cutoff (0); true jump = 4
+                const x = [], y = [];
+                for (let i = 0; i < totalPoints; i++) x.push(Math.random() * 20 - 10);
+                x.sort(asc);
+                x.forEach(v => y.push(-2 + 0.4 * v + (v >= 0 ? 4 : 0) + randn() * 1.2));
+                const L = x.map((v, i) => i).filter(i => x[i] < 0), R = x.map((v, i) => i).filter(i => x[i] >= 0);
+                const fl = lsq(L.map(i => x[i]), L.map(i => y[i]), [() => 1, v => v]), fr = lsq(R.map(i => x[i]), R.map(i => y[i]), [() => 1, v => v]);
+                return { x, y, fl, fr, jump: fr.f(0) - fl.f(0), nL: L.length, nR: R.length };
+            }
+
+            function makeDose() {
+                // 5 dose levels (0 = control) x 30 units; response levels off at high doses
+                const pos = [], stats = [], tc = tDist(29).inv(0.975);
+                for (let d = 0; d < 5; d++) {
+                    const v = [];
+                    for (let k = 0; k < 30; k++) v.push(8 * d / (1.5 + d) + randn() * 1.5);
+                    const m = mean(v), half = tc * sampleSD(v, m) / Math.sqrt(30);
+                    swarm(v, -10 + d * 5, t => (t - 3.5) * 1.3).forEach((p, k) => { pos[d * 30 + k] = p; });
+                    stats.push({ m, lo: m - half, hi: m + half });
+                }
+                return { pos, stats };
+            }
+
+            function makeSurvival() {
+                // time to event, followed for 12 months; control mean 6, treatment mean 10 (hazard ratio 0.6)
+                const T = 12, arms = [6, 10].map(mu => {
+                    const t = [];
+                    for (let k = 0; k < 75; k++) t.push(Math.min(T, -Math.log(1 - Math.random()) * mu));
+                    t.sort(asc);
+                    const events = t.filter(v => v < T).length;
+                    return { t, events, sEnd: 1 - events / 75, median: events >= 38 ? t[37] : null };
+                });
+                // log-rank test
+                const all = [];
+                arms.forEach((A, a) => A.t.forEach(v => { if (v < T) all.push({ t: v, a }); }));
+                all.sort((p, q) => p.t - q.t);
+                const risk = [75, 75];
+                let E1 = 0, Vr = 0;
+                all.forEach(e => { const n = risk[0] + risk[1]; E1 += risk[1] / n; Vr += risk[0] * risk[1] / (n * n); risk[e.a]--; });
+                const chi2 = (arms[1].events - E1) ** 2 / Vr;
+                return { T, arms, chi2, p: 2 * (1 - normalCDF(Math.sqrt(chi2))) };
+            }
+
+            // ===== economics examples =====
+            const EC = { C: { color: 0x00ffff, css: '#00ffff', name: 'C consumption' }, I: { color: 0xff6a00, css: '#ff8a3d', name: 'I investment' },
+                         G: { color: 0x00ff00, css: '#3dff3d', name: 'G government' }, NX: { color: 0xb061ff, css: '#b061ff', name: 'NX net exports' } };
+            // text label that always faces the camera
+            function makeLabel(text, x, y, h, color) {
+                const c = document.createElement('canvas'), font = "600 52px 'IBM Plex Sans','Segoe UI',sans-serif";
+                let g = c.getContext('2d');
+                g.font = font;
+                c.width = Math.ceil(g.measureText(text).width) + 24; c.height = 96;      // canvas sized to the text so nothing is clipped
+                g = c.getContext('2d');
+                g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
+                g.fillStyle = color || '#9fc6da'; g.fillText(text, c.width / 2, 50);
+                const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+                h = (h || 0.8) * 1.4;
+                sp.scale.set(h * c.width / 96, h, 1); sp.position.set(x, y, 0.2);
+                return addTemp(sp);
+            }
+            function ecoAxes(x0, y0, x1, y1, xl, yl) {
+                addTemp(makeLine([V(x0, y0, -0.1), V(x1, y0, -0.1)], 0x4f9fc0, 1));
+                addTemp(makeLine([V(x0, y0, -0.1), V(x0, y1, -0.1)], 0x4f9fc0, 1));
+                makeLabel(xl, (x0 + x1) / 2, y0 - 1.0, 0.75);
+                makeLabel(yl, x0 + 1.6, y1 + 0.7, 0.75);
+            }
+
+            function makeGDP() {
+                // 10 years of national accounts, index units; one year carries an investment slump
+                let C = 60, I = 22, G = 14, NX = -4;
+                const shock = 3 + Math.floor(Math.random() * 5), years = [];
+                for (let t = 0; t < 10; t++) {
+                    if (t > 0) {
+                        if (t === shock) { C *= 0.985; I *= 0.80; G *= 1.05; NX += 1.5; }
+                        else { C *= 1.05 + randn() * 0.012; I *= 1.08 + randn() * 0.04; G *= 1.04 + randn() * 0.015; NX += randn() * 1.2 - 0.3; }
+                    }
+                    years.push({ C, I, G, NX, Y: C + I + G + NX });
+                }
+                const growth = [];
+                for (let t = 1; t < 10; t++) {
+                    const a = years[t - 1], b = years[t];
+                    growth.push({ g: (b.Y / a.Y - 1) * 100, C: (b.C - a.C) / a.Y * 100, I: (b.I - a.I) / a.Y * 100, G: (b.G - a.G) / a.Y * 100, NX: (b.NX - a.NX) / a.Y * 100 });
+                }
+                return { years, growth, shock };
+            }
+            function makeMacro() {
+                const cy = [], cc = [], ir = [], ii = [], gy = [], gg = [], ty = [], tt = [];
+                for (let i = 0; i < totalPoints; i++) {
+                    const y = 1 + Math.random() * 19, r = 1 + Math.random() * 11;
+                    cy.push(y); cc.push(2 + 0.75 * y + randn() * 0.8);            // C = a + b Y
+                    ir.push(r); ii.push(12 - 0.9 * r + randn() * 0.7);            // I = I0 - d r
+                    if (i < 75) { gy.push(y); gg.push(4 + randn() * 0.35); }      // G does not depend on Y
+                    else { ty.push(y); tt.push(0.3 * y + randn() * 0.45); }       // T = t Y
+                }
+                const line = [() => 1, v => v];
+                return { cy, cc, cfit: lsq(cy, cc, line), ir, ii, ifit: lsq(ir, ii, line), gy, gg, gfit: lsq(gy, gg, line), ty, tt, tfit: lsq(ty, tt, line) };
+            }
+            function makeIncomes() {
+                const inc = [];
+                for (let i = 0; i < totalPoints; i++) inc.push(Math.exp(randn() * 0.85));
+                inc.sort(asc);
+                const total = sum(inc), L = [];
+                let c = 0, area = 0, prev = 0;
+                inc.forEach(v => { c += v; const l = c / total; area += (prev + l) / 2 / totalPoints; prev = l; L.push(l); });
+                const share = (a, b) => sum(inc.slice(a, b)) / total * 100;
+                return { inc, L, max: inc[totalPoints - 1], gini: 1 - 2 * area, bottom20: share(0, 30), top20: share(120, 150), top10: share(135, 150),
+                         bottom50: share(0, 75), ratio: share(120, 150) / share(0, 30) };
+            }
+            function apportion(w, total) {              // whole-number shares by largest remainder
+                const sw = sum(w), raw = w.map(v => v / sw * total), out = raw.map(Math.floor);
+                raw.map((v, i) => [v - out[i], i]).sort((a, b) => b[0] - a[0]).slice(0, total - sum(out)).forEach(p => { out[p[1]]++; });
+                return out;
+            }
+            function makePyramid() {
+                // 17 five-year age groups (0-4 ... 80+), a young population profile
+                const w = [9.5, 9.5, 9, 8.5, 8.5, 8.5, 8, 7.5, 6, 5, 4.5, 4, 3.5, 2.5, 2, 1.5, 1.5];
+                const jig = v => v * (1 + randn() * 0.04);
+                const m = apportion(w.map(jig), 75), f = apportion(w.map((v, k) => jig(v) * (k >= 12 ? 1.3 : 1)), 75);
+                const who = [];
+                [m, f].forEach((cnt, sex) => cnt.forEach((n, k) => { for (let j = 0; j < n; j++) who.push({ sex, k, j }); }));
+                const tot = m.map((v, k) => v + f[k]), young = sum(tot.slice(0, 3)), old = sum(tot.slice(13)), work = totalPoints - young - old;
+                let cum = 0, med = 0;
+                for (let k = 0; k < 17; k++) { if (cum + tot[k] >= 75) { med = k * 5 + 5 * (75 - cum) / tot[k]; break; } cum += tot[k]; }
+                return { who, young: young / 1.5, old: old / 1.5, work: work / 1.5, dep: (young + old) / work * 100, med };
+            }
+            function makeMarket() {
+                // inverse demand P = 12 - 0.6 Q, inverse supply P = 2 + 0.5 Q
+                const dq = [], dp = [], sq = [], sp = [];
+                for (let i = 0; i < 75; i++) {
+                    let q = 1 + Math.random() * 16; dq.push(q); dp.push(12 - 0.6 * q + randn() * 0.5);
+                    q = 1 + Math.random() * 16; sq.push(q); sp.push(2 + 0.5 * q + randn() * 0.5);
+                }
+                const line = [() => 1, v => v], d = lsq(dq, dp, line), sfit = lsq(sq, sp, line), SHIFT = 5;
+                const eq = a => { const q = (a - sfit.beta[0]) / (sfit.beta[1] - d.beta[1]); return { q, p: sfit.f(q) }; };
+                // demand shifted right by SHIFT units of quantity: P = a - b (Q - SHIFT)
+                return { dq, dp, sq, sp, d, s: sfit, SHIFT, e0: eq(d.beta[0]), e1: eq(d.beta[0] - d.beta[1] * SHIFT) };
+            }
+
+            function newSample() {
+                const xs = [];
+                for (let i = 0; i < totalPoints; i++) xs.push(Math.random() * 20 - 10);
+                xs.sort((a, b) => a - b);
+                D = {
+                    dist: makeDistributions(),
+                    lin:  makeScatter(xs, x => 0.8 * x, 1.6, (X, Y) => lsq(X, Y, [() => 1, x => x])),
+                    quad: makeScatter(xs, x => 0.15 * x * x - 6, 1.3, (X, Y) => lsq(X, Y, [() => 1, x => x, x => x * x])),
+                    exp:  makeScatter(xs, x => 2.5 * Math.pow(1.2, x) - 10, 1.2,
+                              (X, Y) => gridFit(X, Y, 1.02, 1.60, 0.002, b => [() => 1, x => Math.pow(b, x)])),
+                    sin:  makeScatter(xs, x => 6 * Math.sin(0.6 * x), 1.3,
+                              (X, Y) => gridFit(X, Y, 0.20, 1.50, 0.004, w => [() => 1, x => Math.sin(w * x), x => Math.cos(w * x)])),
+                    ts:   makeTimeSeries(),
+                    cat:  makeCategories(),
+                    samp: makeSampling(),
+                    ci:   makeIntervals(),
+                    tt:   makeTwoGroups(),
+                    multi: makeMultiple(),
+                    gdp: makeGDP(), macro: makeMacro(), incomes: makeIncomes(), pyr: makePyramid(), market: makeMarket(),
+                    rct: makeRCT(), obs: makeObservational(), did: makeDiD(), rd: makeRD(), dose: makeDose(), km: makeSurvival(),
+                    panel: makePanel()
+                };
+                D.quad.line = lsq(xs, D.quad.y, [() => 1, x => x]);      // a deliberately wrong (straight) model
+                spheres.forEach(s => s.userData.home.set((Math.random() - 0.5) * 50, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 20));
+            }
+
+            // ================= DRAWING HELPERS =================
+            let tempObjects = [], animators = [];
+            function addTemp(obj, anim) {
+                scene.add(obj); tempObjects.push(obj);
+                if (anim) animators.push(anim);
+                return obj;
+            }
+            function clearTempObjects() {
+                tempObjects.forEach(obj => {
+                    scene.remove(obj);
+                    if (!obj.isSprite && obj.geometry) obj.geometry.dispose();
+                    if (obj.material) { if (obj.material.map) obj.material.map.dispose(); obj.material.dispose(); }
+                });
+                tempObjects = []; animators = [];
+            }
+            const clamp01 = v => Math.max(0, Math.min(1, v));
+            // progress 0..1 of a reveal that runs from t0 to t1 seconds into the scene
+            const span = (t, t0, t1) => clamp01((t - t0) / (t1 - t0));
+
+            // Glowing tube that can be drawn in progressively
+            function makeTube(points, color, radius) {
+                const radial = 6, seg = Math.max(8, points.length * 2);
+                const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), seg, radius || 0.07, radial, false);
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+                const total = geo.index.count, chunk = radial * 6;
+                mesh.userData.reveal = p => geo.setDrawRange(0, Math.floor(p * total / chunk) * chunk);
+                return mesh;
+            }
+            function makeLine(points, color, opacity) {
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: opacity == null ? 1 : opacity }));
+                line.userData.reveal = p => geo.setDrawRange(0, Math.floor(p * points.length));
+                return line;
+            }
+            // Many independent segments in one object: segs = [{a, b, color}]
+            function makeSegments(segs, opacity) {
+                const pos = new Float32Array(segs.length * 6), col = new Float32Array(segs.length * 6), c = new THREE.Color();
+                segs.forEach((s, i) => {
+                    pos.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z], i * 6);
+                    c.setHex(s.color); col.set([c.r, c.g, c.b, c.r, c.g, c.b], i * 6);
+                });
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+                const obj = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity }));
+                obj.userData.reveal = p => geo.setDrawRange(0, Math.floor(p * segs.length) * 2);
+                return obj;
+            }
+            // Add an object and reveal it between t0 and t1 (t0 === t1 -> shown immediately)
+            function reveal(obj, t0, t1) {
+                if (t1 <= t0) { obj.userData.reveal(1); return addTemp(obj); }
+                obj.userData.reveal(0);
+                return addTemp(obj, t => obj.userData.reveal(span(t, t0, t1)));
+            }
+            const V = (x, y, z) => new THREE.Vector3(x, y, z || 0);
+            function curvePoints(f, lo, hi, step) {
+                const pts = [];
+                for (let x = lo; x <= hi + 1e-9; x += step) pts.push(V(x, f(x), 0));
+                return pts;
+            }
+
+            // ----- sphere targets -----
+            function setAll(fn) { spheres.forEach((s, i) => fn(s.userData, i, s)); }
+            function toDistribution(stagger) {
+                setAll((u, i) => {
+                    const g = Math.floor(i / perGroup);
+                    u.target.copy(D.dist.pos[i]); u.col.setHex(groupConfigs[g].color);
+                    u.scale = 1; u.pulse = false; u.delay = stagger ? g * 0.35 + (i % perGroup) * 0.022 : 0;
+                });
+            }
+            function toScatter(ds, stagger) {
+                setAll((u, i) => {
+                    u.target.set(ds.x[i], ds.y[i], 0); u.col.setHex(CYAN);
+                    u.scale = 1; u.pulse = false; u.delay = stagger ? i * 0.006 : 0;
+                });
+            }
+
+            // ----- distribution furniture -----
+            function drawBaseline() { addTemp(makeLine([V(-17, BASE), V(17, BASE)], 0x2a6f8f, 0.9)); }
+            function drawNormalCurves(t0, t1) {
+                D.dist.groups.forEach((g, i) => {
+                    const pts = [];
+                    for (let k = 0; k <= 60; k++) {
+                        const x = g.mean - 4 * g.sd + (8 * g.sd) * k / 60;
+                        // expected dots per bin = n * binWidth * density, drawn at one DOT per observation
+                        pts.push(V(x * xScale, BASE + g.n * BIN * normalPDF(x, g.mean, g.sd) * DOT, 0.05));
+                    }
+                    reveal(makeTube(pts, groupConfigs[i].color, 0.05), t0, t1);
+                });
+            }
+            function drawMeasures(t0) {
+                D.dist.groups.forEach((g, i) => {
+                    const band = new THREE.Mesh(new THREE.PlaneGeometry(2 * g.sd * xScale, 8),
+                        new THREE.MeshBasicMaterial({ color: groupConfigs[i].color, transparent: true, opacity: 0.09, depthWrite: false }));
+                    band.position.set(g.mean * xScale, BASE + 4, -0.3);
+                    const med = makeTube([V(g.median * xScale, BASE, 0.1), V(g.median * xScale, BASE + 6.6, 0.1)], YELLOW, 0.035);
+                    const mn = makeTube([V(g.mean * xScale, BASE, 0.12), V(g.mean * xScale, BASE + 8, 0.12)], 0xffffff, 0.035);
+                    reveal(med, t0, t0 + 0.8);
+                    reveal(mn, t0 + 1.0, t0 + 1.8);
+                    band.visible = t0 <= 0 ? true : false;
+                    addTemp(band, t0 > 0 ? t => { band.visible = t > t0 + 2.0; } : null);
+                });
+            }
+            function drawDeviations(t0, t1) {
+                const segs = spheres.map((s, i) => {
+                    const g = D.dist.groups[Math.floor(i / perGroup)], p = D.dist.pos[i];
+                    return { a: V(g.mean * xScale, p.y, 0), b: V(p.x, p.y, 0), color: 0xffffff };
+                });
+                reveal(makeSegments(segs, 0.38), t0, t1);
+            }
+            const groupLine = (i, text) => `<span class="chip" style="background:${groupConfigs[i].css}"></span>${text}<br>`;
+            const measureKey = `<span class="dim"><span class="key" style="background:#fff"></span>mean &nbsp; ` +
+                               `<span class="key" style="background:#ffe14d"></span>median &nbsp; shaded band = mean &plusmn; 1 s</span>`;
+
+            // ----- scatter furniture -----
+            function drawAxes() {
+                addTemp(makeLine([V(-11, 0, -0.1), V(11, 0, -0.1)], 0x2a6f8f, 0.9));
+                addTemp(makeLine([V(0, -11, -0.1), V(0, 11, -0.1)], 0x2a6f8f, 0.9));
+            }
+            function drawFitAndResiduals(ds) {
+                reveal(makeTube(curvePoints(ds.fit.f, -10, 10, 0.25), ORANGE, 0.08), 0.4, 2.4);
+                // residual = observed - fitted, always measured vertically
+                const segs = ds.x.map((x, i) => {
+                    const yhat = ds.fit.f(x);
+                    return { a: V(x, ds.y[i], 0), b: V(x, yhat, 0), color: ds.y[i] >= yhat ? 0xff6fa3 : 0x5cc8ff };
+                });
+                reveal(makeSegments(segs, 0.75), 2.4, 6.0);
+            }
+            const residualKey = `<span class="dim"><span class="key" style="background:#ff8800"></span>least-squares fit &nbsp; ` +
+                                `<span class="key" style="background:#ff6fa3"></span>above &nbsp; <span class="key" style="background:#5cc8ff"></span>below</span>`;
+
+            // ----- extra furniture for the added graphs -----
+            function drawHistogram(t0, t1) {
+                const bins = Object.keys(D.dist.stacks).map(Number).sort(asc), segs = [];
+                bins.forEach(b => {
+                    const x0 = b * BIN * xScale, x1 = (b + 1) * BIN * xScale, top = BASE + D.dist.stacks[b] * DOT;
+                    segs.push({ a: V(x0, BASE, 0.35), b: V(x0, top, 0.35), color: 0xcfefff },
+                              { a: V(x0, top, 0.35), b: V(x1, top, 0.35), color: 0xcfefff },
+                              { a: V(x1, top, 0.35), b: V(x1, BASE, 0.35), color: 0xcfefff });
+                    const bar = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, top - BASE),
+                        new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.10, depthWrite: false }));
+                    bar.position.set((x0 + x1) / 2, (top + BASE) / 2, -0.35);
+                    addTemp(bar);
+                });
+                reveal(makeSegments(segs, 0.9), t0, t1);
+            }
+            function residualPlot(ds, f, S) {
+                setAll((u, i) => {
+                    const e = ds.y[i] - f(ds.x[i]);
+                    u.target.set(ds.x[i], e * S, 0); u.col.setHex(e >= 0 ? PINK : BLUE);
+                    u.scale = 1; u.pulse = false; u.delay = i * 0.004;
+                });
+                addTemp(makeLine([V(0, -11, -0.1), V(0, 11, -0.1)], 0x2a6f8f, 0.9));
+                reveal(makeTube([V(-10.5, 0, 0), V(10.5, 0, 0)], ORANGE, 0.06), 0, 0);
+            }
+            function toBars() {
+                setAll((u, i) => {
+                    const c = D.cat.cat[i], j = D.cat.idx[i];
+                    u.target.set(-9 + c * 6 + (j % 5 - 2) * 0.62, -5 + 0.31 + Math.floor(j / 5) * 0.62, 0);
+                    u.col.setHex(CATS[c].color); u.scale = 1; u.pulse = false; u.delay = j * 0.012;
+                });
+                addTemp(makeLine([V(-12.5, -5, 0), V(12.5, -5, 0)], 0x2a6f8f, 0.9));
+            }
+            const catLines = extra => D.cat.counts.map((n, c) =>
+                `<span class="chip" style="background:${CATS[c].css}"></span>${CATS[c].name}: ${n} (${num(100 * n / totalPoints, 1)}%)${extra ? extra(n, c) : ''}<br>`).join('');
+            const pText = p => p < 0.001 ? 'p &lt; 0.001' : 'p = ' + num(p, 3);
+
+            // ================= SCENES =================
+            const CH = { one: 'Describing one variable', inf: 'Sampling and inference', trt: 'Treatment and control groups', eco: 'Economics examples (simulated data)', reg: 'Correlation and regression', non: 'Non-linear relationships', time: 'Data over time' };
+            const scenes = [
+                // ---- Chaos ----
+                { ch: 'one', title: "Unstructured Data", dur: 5, cam: 'orbit', grid: false,
+                  enter() {
+                      setAll(u => { u.col.setHex(CYAN); u.scale = 1; u.pulse = false; u.delay = 0; });
+                      hud("150 raw observations. Until they are ordered and summarised, they tell us nothing.", "");
+                  },
+                  update(t, time) {
+                      setAll((u, i) => u.target.set(u.home.x + Math.sin(time * 0.6 + i) * 0.8,
+                                                    u.home.y + Math.cos(time * 0.5 + i * 1.3) * 0.8,
+                                                    u.home.z + Math.sin(time * 0.4 + i * 0.7) * 0.8));
+                  } },
+                // ---- Bell curves ----
+                { ch: 'one', title: "Three Samples, Three Distributions", dur: 8, cam: 'dist', grid: true,
+                  enter() {
+                      toDistribution(true); drawBaseline(); drawNormalCurves(3.6, 6.2);
+                      hud("Each dot is one observation, stacked where its value falls. The bell shape comes from the counts; the curve is the normal model fitted to each sample.",
+                          `<span class="dim">3 samples, n = 50 each, drawn from normal populations with &sigma; = 2</span>`);
+                  } },
+                // ---- Histogram ----
+                { ch: 'one', title: "Histogram", dur: 7, cam: 'dist', grid: true,
+                  enter() {
+                      toDistribution(false); drawBaseline(); drawHistogram(0.3, 3.5);
+                      const top = Math.max.apply(null, Object.values(D.dist.stacks));
+                      hud("Wrap each pile of dots in a bar and you have a histogram: equal-width bins on the value axis, bar height = number of observations in the bin.",
+                          `Bin width ${BIN} &nbsp; tallest bin ${top} observations<br><span class="dim">Bars touch because the scale is continuous. Changing the bin width changes the picture, not the data.</span>`);
+                  } },
+                // ---- Measures ----
+                { ch: 'one', title: "Statistical Measures", dur: 8, cam: 'dist', grid: true,
+                  enter() {
+                      toDistribution(false); drawBaseline(); drawNormalCurves(0, 0); drawMeasures(0.3);
+                      hud("The median is the middle value, the mean is the balance point, and s is the sample standard deviation (divided by n \u2212 1).",
+                          D.dist.groups.map((g, i) => groupLine(i, `mean ${num(g.mean)} &nbsp; median ${num(g.median)} &nbsp; s ${num(g.sd)}`)).join('') + measureKey);
+                  } },
+                // ---- Deviations ----
+                { ch: 'one', title: "Deviation from the Mean", dur: 8, cam: 'dist', grid: true,
+                  enter() {
+                      toDistribution(false); drawBaseline(); drawNormalCurves(0, 0); drawMeasures(0); drawDeviations(0.3, 5.5);
+                      hud("Each line is a deviation, x \u2212 mean. They always cancel to zero, so we square them: s\u00B2 = \u03A3(x \u2212 mean)\u00B2 / (n \u2212 1).",
+                          D.dist.groups.map((g, i) => groupLine(i, `\u03A3 deviations ${num(g.devSum)} &nbsp; s\u00B2 ${num(g.variance)} &nbsp; s ${num(g.sd)}`)).join(''));
+                  } },
+                // ---- Outliers ----
+                { ch: 'one', title: "Potential Outliers (|z| > 2.5)", dur: 8, cam: 'dist', grid: true,
+                  enter() {
+                      toDistribution(false); drawBaseline(); drawNormalCurves(0, 0); drawMeasures(0); drawDeviations(0, 0);
+                      let count = 0;
+                      setAll((u, i) => { if (D.dist.flagged[i]) { u.col.setHex(RED); u.scale = 1.6; u.pulse = true; count++; } });
+                      const g = D.dist.groups[D.dist.planted];
+                      hud("z = (x \u2212 mean) / s. One extreme value was planted in this sample: it pulls the mean and inflates s, while the median barely moves. A flag means investigate, not delete.",
+                          `Flagged: ${count} of ${totalPoints}<br>` +
+                          groupLine(D.dist.planted, `mean ${num(g.mean)} vs median ${num(g.median)} &nbsp; s ${num(g.sd)} (population &sigma; = 2)`) +
+                          `<span class="dim">In normal data about 1.2% of points pass 2.5 s by chance alone.</span>`);
+                  } },
+
+                // ---- Box plot ----
+                { ch: 'one', title: "Box Plot", dur: 9, cam: 'dist', grid: true,
+                  enter() {
+                      const BY = BASE + 3.4, segs = [];
+                      let out = 0;
+                      setAll((u, i) => {
+                          const g = Math.floor(i / perGroup), b = D.dist.groups[g].box, x = D.dist.val[i], far = x < b.lf || x > b.uf;
+                          if (far) out++;
+                          u.target.set(x * xScale, far ? BY : BASE + 0.4 + ((i * 0.618) % 1) * 1.2, 0);
+                          u.col.setHex(far ? RED : groupConfigs[g].color); u.scale = far ? 1.3 : 0.75; u.pulse = false; u.delay = 0;
+                      });
+                      drawBaseline();
+                      D.dist.groups.forEach((g, i) => {
+                          const b = g.box, c = groupConfigs[i].color, X = v => v * xScale, z = 0.1;
+                          segs.push({ a: V(X(b.q1), BY - 0.8, z), b: V(X(b.q3), BY - 0.8, z), color: c }, { a: V(X(b.q3), BY - 0.8, z), b: V(X(b.q3), BY + 0.8, z), color: c },
+                                    { a: V(X(b.q3), BY + 0.8, z), b: V(X(b.q1), BY + 0.8, z), color: c }, { a: V(X(b.q1), BY + 0.8, z), b: V(X(b.q1), BY - 0.8, z), color: c },
+                                    { a: V(X(b.wlo), BY, z), b: V(X(b.q1), BY, z), color: c }, { a: V(X(b.q3), BY, z), b: V(X(b.whi), BY, z), color: c },
+                                    { a: V(X(b.wlo), BY - 0.4, z), b: V(X(b.wlo), BY + 0.4, z), color: c }, { a: V(X(b.whi), BY - 0.4, z), b: V(X(b.whi), BY + 0.4, z), color: c });
+                          reveal(makeTube([V(X(g.median), BY - 0.8, z), V(X(g.median), BY + 0.8, z)], YELLOW, 0.05), 2.6, 3.2);
+                      });
+                      reveal(makeSegments(segs, 1), 0.8, 2.6);
+                      hud("Box = the middle 50% (Q1 to Q3), yellow line = median, whiskers reach the furthest values within 1.5 \u00D7 IQR. Anything beyond is drawn on its own. This rule uses quartiles, so the outlier cannot hide by inflating s.",
+                          D.dist.groups.map((g, i) => groupLine(i, `Q1 ${num(g.box.q1)} &nbsp; median ${num(g.median)} &nbsp; Q3 ${num(g.box.q3)}`)).join('') + `Beyond the fences: ${out}`);
+                  } },
+                // ---- ECDF ----
+                { ch: 'one', title: "Cumulative Distribution", dur: 8, cam: 'dist', grid: true,
+                  enter() {
+                      const H = 6;
+                      setAll((u, i) => {
+                          const g = Math.floor(i / perGroup), k = i % perGroup;
+                          u.target.set(D.dist.val[i] * xScale, BASE + H * (k + 1) / perGroup, 0);
+                          u.col.setHex(groupConfigs[g].color); u.scale = 0.8; u.pulse = false; u.delay = k * 0.015;
+                      });
+                      drawBaseline();
+                      addTemp(makeLine([V(-17, BASE + H, 0), V(17, BASE + H, 0)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(-17, BASE + H / 2, 0), V(17, BASE + H / 2, 0)], YELLOW, 0.45));
+                      D.dist.groups.forEach((g, i) => {
+                          const pts = [];
+                          for (let k = 0; k <= 60; k++) { const x = g.mean - 4 * g.sd + 8 * g.sd * k / 60; pts.push(V(x * xScale, BASE + H * normalCDF((x - g.mean) / g.sd), -0.05)); }
+                          reveal(makeTube(pts, groupConfigs[i].color, 0.04), 2.5, 4.5);
+                      });
+                      hud("Sort the values and climb one step per observation. The height of a dot is the share of the sample at or below its value, from 0% to 100%.",
+                          `<span class="dim"><span class="key" style="background:#ffe14d"></span>50% line: each curve crosses it at its median. Smooth curves are the fitted normal model.</span>`);
+                  } },
+                // ---- Q-Q plot ----
+                { ch: 'one', title: "Normal Q-Q Plot", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      const S = 1.8, cy = -2;
+                      setAll((u, i) => {
+                          const g = Math.floor(i / perGroup), k = i % perGroup, G = D.dist.groups[g];
+                          u.target.set((g - 1) * 11 + QN[k] * S, cy + (D.dist.val[i] - G.mean) / G.sd * S, 0);
+                          u.col.setHex(groupConfigs[g].color); u.scale = 0.8; u.pulse = false; u.delay = k * 0.015;
+                      });
+                      for (let g = 0; g < 3; g++) {
+                          const cx = (g - 1) * 11;
+                          addTemp(makeLine([V(cx - 5, cy, -0.1), V(cx + 5, cy, -0.1)], 0x2a6f8f, 0.9));
+                          addTemp(makeLine([V(cx, cy - 6.5, -0.1), V(cx, cy + 6.5, -0.1)], 0x2a6f8f, 0.9));
+                          reveal(makeTube([V(cx - 2.7 * S, cy - 2.7 * S, -0.05), V(cx + 2.7 * S, cy + 2.7 * S, -0.05)], ORANGE, 0.05), 2.2, 3.4);
+                      }
+                      hud("Is a sample normal? Plot its ordered values (vertical, in standard units) against the values a perfect normal sample would give (horizontal). Normal data hug the line.",
+                          groupLine(D.dist.planted, `the planted value peels away from the line at one end`) +
+                          `<span class="dim">One panel per sample. Small wobbles at the ends are ordinary sampling noise.</span>`);
+                  } },
+                // ---- Bar chart ----
+                { ch: 'one', title: "Bar Chart for Categories", dur: 8, cam: 'front', grid: true,
+                  enter() {
+                      toBars();
+                      hud("Categorical data have no numeric scale, so we count. Each bar is built from its observations; its height is the frequency. Bars stand apart because categories have no distance between them.",
+                          catLines());
+                  } },
+                // ---- Pie chart ----
+                { ch: 'one', title: "Pie Chart", dur: 8, cam: 'front', grid: false,
+                  enter() {
+                      const cy = -1;
+                      setAll((u, i) => {
+                          const th = Math.PI / 2 - 2 * Math.PI * (Math.floor(i / 3) + 0.5) / 50, r = 5 + (i % 3) * 0.7;
+                          u.target.set(Math.cos(th) * r, cy + Math.sin(th) * r, 0);
+                          u.col.setHex(CATS[D.cat.cat[i]].color); u.scale = 1; u.pulse = false; u.delay = Math.floor(i / 3) * 0.03;
+                      });
+                      let cum = 0;
+                      D.cat.counts.forEach(n => {
+                          const th = Math.PI / 2 - 2 * Math.PI * cum / totalPoints;
+                          addTemp(makeLine([V(Math.cos(th) * 3.6, cy + Math.sin(th) * 3.6, 0), V(Math.cos(th) * 7.6, cy + Math.sin(th) * 7.6, 0)], 0xffffff, 0.7));
+                          cum += n;
+                      });
+                      hud("The same counts as shares of one whole: each slice's angle is proportional to its frequency. Use it only for a few categories that add up to 100%; bars are easier to compare.",
+                          catLines((n) => ` &nbsp; ${num(360 * n / totalPoints, 0)}\u00B0`));
+                  } },
+
+                // ---- Skewed population ----
+                { ch: 'inf', title: "A Skewed Population", dur: 8, cam: 'front', grid: true,
+                  enter() {
+                      const P = D.samp, X = v => -6 + v * 1.2;
+                      setAll((u, i) => { u.target.copy(P.popPos[i]); u.col.setHex(CYAN); u.scale = 1; u.pulse = false; u.delay = i * 0.008; });
+                      addTemp(makeLine([V(-7, -7, 0), V(20, -7, 0)], 0x2a6f8f, 0.9));
+                      const pts = [];
+                      for (let v = 0; v <= 21; v += 0.3) pts.push(V(X(v), -7 + totalPoints * 0.5 * (Math.exp(-v / 4) / 4) * DOT, 0.05));
+                      reveal(makeTube(pts, 0x9fdfff, 0.05), 2.5, 4.5);
+                      reveal(makeTube([V(X(P.popMedian), -7, 0.1), V(X(P.popMedian), 0, 0.1)], YELLOW, 0.035), 4.6, 5.2);
+                      reveal(makeTube([V(X(P.popMean), -7, 0.12), V(X(P.popMean), 1.2, 0.12)], 0xffffff, 0.035), 5.2, 5.8);
+                      hud("150 individuals drawn from a strongly right-skewed population (exponential, \u03BC = 4, \u03C3 = 4). Most values are small, a few are very large. Nothing bell-shaped here.",
+                          `mean ${num(P.popMean)} &nbsp; median ${num(P.popMedian)}<br><span class="dim">The long right tail pulls the mean above the median.</span>`);
+                  } },
+                // ---- CLT ----
+                { ch: 'inf', title: "Sampling Distribution of the Mean", dur: 9, cam: 'dist', grid: true,
+                  enter() {
+                      const P = D.samp;
+                      setAll((u, i) => { u.target.copy(P.meansPos[i]); u.col.setHex(CYAN); u.scale = 1; u.pulse = false; u.delay = i * 0.008; });
+                      addTemp(makeLine([V(-15, -5, 0), V(15, -5, 0)], 0x2a6f8f, 0.9));
+                      const pts = [];
+                      for (let m = 4 - 3.2; m <= 4 + 3.2; m += 0.08) pts.push(V((m - 4) * 4, -5 + totalPoints * 0.15 * normalPDF(m, 4, P.se) * DOT, 0.05));
+                      reveal(makeTube(pts, ORANGE, 0.05), 3.0, 5.0);
+                      reveal(makeTube([V(0, -5, 0.12), V(0, 4, 0.12)], 0xffffff, 0.035), 5.0, 5.6);
+                      hud("Now each dot is the mean of a fresh sample of 30 from that skewed population. The means pile up in a bell around \u03BC: the central limit theorem. Their spread is the standard error, \u03C3 / \u221An.",
+                          `Mean of the 150 sample means: ${num(P.meanOfMeans)} (\u03BC = 4)<br>Their standard deviation: ${num(P.sdOfMeans)} (\u03C3/\u221A30 = ${num(P.se)})<br>` +
+                          `<span class="dim"><span class="key" style="background:#ff8800"></span>normal curve predicted by theory. The axis is magnified compared with the previous scene.</span>`);
+                  } },
+                // ---- Confidence intervals ----
+                { ch: 'inf', title: "Confidence Intervals", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const C = D.ci, S = 2.2, segs = [];
+                      setAll((u, i) => {
+                          const k = Math.floor(i / 3), r = i % 3, c = C.list[k];
+                          u.target.set(-12.25 + k * 0.5, (r === 0 ? c.lo : r === 1 ? c.m : c.hi) * S, 0);
+                          u.col.setHex(c.cover ? CYAN : RED); u.scale = r === 1 ? 0.8 : 0.4; u.pulse = false; u.delay = k * 0.04;
+                      });
+                      C.list.forEach((c, k) => segs.push({ a: V(-12.25 + k * 0.5, c.lo * S, 0), b: V(-12.25 + k * 0.5, c.hi * S, 0), color: c.cover ? CYAN : RED }));
+                      reveal(makeSegments(segs, 0.9), 2.5, 5.5);
+                      reveal(makeTube([V(-13.2, 0, -0.1), V(13.2, 0, -0.1)], ORANGE, 0.05), 0.2, 1.4);
+                      hud("50 separate samples, 50 intervals: mean \u00B1 t \u00D7 s/\u221An. In the long run 95% of intervals built this way cover the true \u03BC (orange). The red ones missed, and from inside one sample you cannot tell which kind you have.",
+                          `${C.covered} of 50 cover \u03BC (expected about 47.5)<br><span class="dim">n = 20 per sample, t = ${num(C.tcrit, 3)} with 19 degrees of freedom</span>`);
+                  } },
+                // ---- Two groups ----
+                { ch: 'inf', title: "Comparing Two Groups", dur: 8, cam: 'front', grid: true,
+                  enter() {
+                      const T = D.tt;
+                      setAll((u, i) => { u.target.copy(T.pos[i]); u.col.setHex(i < 75 ? groupConfigs[0].color : groupConfigs[2].color); u.scale = 1; u.pulse = false; u.delay = (i % 75) * 0.012; });
+                      addTemp(makeLine([V(-13, 0, 0), V(13, 0, 0)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(-13, -6.5, 0), V(13, -6.5, 0)], 0x2a6f8f, 0.9));
+                      reveal(makeTube([V(T.ma * 1.6, 0, 0.12), V(T.ma * 1.6, 5.5, 0.12)], 0xffffff, 0.035), 2.6, 3.2);
+                      reveal(makeTube([V(T.mb * 1.6, -6.5, 0.12), V(T.mb * 1.6, -1, 0.12)], 0xffffff, 0.035), 3.2, 3.8);
+                      reveal(makeTube([V(T.ma * 1.6, -0.5, 0.12), V(T.mb * 1.6, -0.5, 0.12)], ORANGE, 0.07), 4.2, 5.0);
+                      hud("Two independent samples on the same scale. Their means differ, but two samples never match exactly. Is this gap bigger than chance alone would produce?",
+                          groupLine(0, `group 1: mean ${num(T.ma)} &nbsp; s ${num(T.sa)} &nbsp; n 75`) + groupLine(2, `group 2: mean ${num(T.mb)} &nbsp; s ${num(T.sb)} &nbsp; n 75`) +
+                          `<span class="eq">difference = ${num(T.mb - T.ma)}</span> &nbsp; standard error ${num(T.se)}`);
+                  } },
+                // ---- t-test ----
+                { ch: 'inf', title: "Hypothesis Test (t-test)", dur: 10, cam: 'dist', grid: true,
+                  enter() {
+                      const T = D.tt, S = 3.2;
+                      setAll((u, i) => { u.target.copy(T.tPos[i]); u.col.setHex(Math.abs(T.tq[i]) > T.crit ? RED : CYAN); u.scale = 1; u.pulse = false; u.delay = i * 0.006; });
+                      addTemp(makeLine([V(-16, -5, 0), V(16, -5, 0)], 0x2a6f8f, 0.9));
+                      const pts = [];
+                      for (let q = -4.5; q <= 4.5; q += 0.1) pts.push(V(q * S, -5 + totalPoints * 0.1875 * T.dist.pdf(q) * DOT, 0.05));
+                      reveal(makeTube(pts, 0x9fdfff, 0.05), 2.5, 4.2);
+                      addTemp(makeLine([V(-T.crit * S, -5, 0.1), V(-T.crit * S, 3, 0.1)], RED, 0.9));
+                      addTemp(makeLine([V(T.crit * S, -5, 0.1), V(T.crit * S, 3, 0.1)], RED, 0.9));
+                      const X = Math.max(-15.5, Math.min(15.5, T.t * S));
+                      reveal(makeTube([V(X, -5, 0.15), V(X, 4.5, 0.15)], ORANGE, 0.07), 4.8, 5.8);
+                      const sig = T.p < 0.05;
+                      hud("If the two groups truly had the same mean (H\u2080), the statistic t = difference / standard error would follow this curve. The red tails hold the most extreme 5%. The orange line is the t we observed.",
+                          `<span class="eq">t = ${num(T.t)}</span> &nbsp; df = ${num(T.df, 1)} &nbsp; ${pText(T.p)}<br>Critical values \u00B1${num(T.crit, 3)}<br>` +
+                          (sig ? `Reject H\u2080 at the 5% level.` : `Do not reject H\u2080. <span class="dim">That is lack of evidence, not proof of no difference.</span>`) +
+                          (Math.abs(T.t * S) > 15.5 ? `<br><span class="dim">Observed t is off the chart; the line is drawn at the edge.</span>` : ''));
+                  } },
+                // ---- ANOVA ----
+                { ch: 'inf', title: "Analysis of Variance (ANOVA)", dur: 9, cam: 'dist', grid: true,
+                  enter() {
+                      const A = D.dist.anova;
+                      toDistribution(false); drawBaseline(); drawDeviations(0, 0);
+                      D.dist.groups.forEach((g, i) => {
+                          reveal(makeTube([V(g.mean * xScale, BASE, 0.12), V(g.mean * xScale, BASE + 8, 0.12)], 0xffffff, 0.035), 0, 0);
+                          reveal(makeTube([V(A.grand * xScale, BASE - 0.9 - i * 0.6, 0.1), V(g.mean * xScale, BASE - 0.9 - i * 0.6, 0.1)], groupConfigs[i].color, 0.08), 1.6 + i * 0.5, 2.6 + i * 0.5);
+                      });
+                      reveal(makeTube([V(A.grand * xScale, BASE - 2.6, 0.12), V(A.grand * xScale, BASE + 8, 0.12)], ORANGE, 0.05), 0.4, 1.4);
+                      hud("With three or more groups, compare two kinds of spread: how far the group means sit from the grand mean (thick bars) and how far observations sit from their own group mean (thin lines). F is their ratio.",
+                          `<span class="eq">F = ${num(A.F, 1)}</span> &nbsp; df = (${A.dfb}, ${A.dfw})<br>5% critical value 3.06, so the means are not all equal.<br>` +
+                          `<span class="dim"><span class="key" style="background:#ff8800"></span>grand mean. F near 1 would mean the groups could share one mean.</span>`);
+                  } },
+                // ---- Chi-square ----
+                { ch: 'inf', title: "Chi-Square Test for Counts", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      const C = D.cat, y = -5 + C.expected / 5 * 0.62;
+                      toBars();
+                      CATS.forEach((c, k) => reveal(makeTube([V(-9 + k * 6 - 2.1, y, 0.4), V(-9 + k * 6 + 2.1, y, 0.4)], ORANGE, 0.06), 2.0 + k * 0.4, 2.8 + k * 0.4));
+                      const sig = C.chi2 > 7.815;
+                      hud("For counts, compare what we observed (O) with what a hypothesis expects (E). Here H\u2080 says the four categories are equally common, so each expects 37.5 (orange). \u03C7\u00B2 = \u03A3 (O \u2212 E)\u00B2 / E.",
+                          catLines((n) => ` &nbsp; O \u2212 E = ${num(n - C.expected, 1)}`) +
+                          `<span class="eq">\u03C7\u00B2 = ${num(C.chi2)}</span> &nbsp; df = 3 &nbsp; 5% critical value 7.81<br>` +
+                          (sig ? `Reject H\u2080: the categories are not equally common.` : `Do not reject H\u2080.`));
+                  } },
+
+                // ---- Linear correlation ----
+                { ch: 'reg', title: "Linear Correlation", dur: 7, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.lin, true); drawAxes();
+                      hud("Now each point has two values, x and y. Pearson's r measures how tightly they follow a straight line, from \u22121 to +1.",
+                          `r = ${num(D.lin.r, 3)}<br><span class="dim">Correlation describes association; on its own it does not show cause.</span>`);
+                  } },
+                // ---- Linear regression ----
+                { ch: 'reg', title: "Linear Regression", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.lin, false); drawAxes(); drawFitAndResiduals(D.lin);
+                      const b = D.lin.fit.beta;
+                      hud("Least squares picks the line that makes the sum of squared vertical residuals as small as possible.",
+                          `<span class="eq">\u0177 = ${num(b[0])} ${signed(b[1])}x</span> &nbsp; R\u00B2 = ${num(D.lin.fit.r2, 3)}<br>` +
+                          `<span class="dim">Data were generated from y = 0.80x + noise; the estimate is close, not identical.</span><br>` + residualKey);
+                  } },
+
+                // ---- Residual plot ----
+                { ch: 'reg', title: "Residual Plot", dur: 8, cam: 'front', grid: true,
+                  enter() {
+                      const ds = D.lin, se = Math.sqrt(ds.fit.sse / (totalPoints - 2)), S = 1.5;
+                      residualPlot(ds, ds.fit.f, S);
+                      addTemp(makeLine([V(-10.5, 2 * se * S, 0), V(10.5, 2 * se * S, 0)], 0xffffff, 0.35));
+                      addTemp(makeLine([V(-10.5, -2 * se * S, 0), V(10.5, -2 * se * S, 0)], 0xffffff, 0.35));
+                      hud("Remove the fitted line and plot only what is left over. A sound model leaves a shapeless band around zero: no curve, no funnel. This is the standard check on a regression.",
+                          `Mean residual ${num(mean(ds.x.map((x, i) => ds.y[i] - ds.fit.f(x))))} &nbsp; residual standard error ${num(se)}<br>` +
+                          `<span class="dim">Faint lines mark \u00B12 standard errors. Vertical scale magnified 1.5\u00D7.</span>`);
+                  } },
+                // ---- Multiple regression ----
+                { ch: 'reg', title: "Multiple Regression", dur: 11, cam: 'panel', grid: false, floor: true,
+                  enter() {
+                      const M = D.multi, f = (a, b) => M.fit.f([a, b]), segs = [], grid = [];
+                      setAll((u, i) => { u.target.set(M.pts[i][0], M.y[i], M.pts[i][1]); u.col.setHex(CYAN); u.scale = 1; u.pulse = false; u.delay = i * 0.006; });
+                      for (let a = -9; a <= 9; a += 3) {
+                          grid.push({ a: V(a, f(a, -9), -9), b: V(a, f(a, 9), 9), color: ORANGE }, { a: V(-9, f(-9, a), a), b: V(9, f(9, a), a), color: ORANGE });
+                      }
+                      reveal(makeSegments(grid, 0.8), 2.0, 3.6);
+                      const geo = new THREE.BufferGeometry();
+                      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+                          -9, f(-9, -9), -9,  9, f(9, -9), -9,  9, f(9, 9), 9,   -9, f(-9, -9), -9,  9, f(9, 9), 9,  -9, f(-9, 9), 9]), 3));
+                      const plane = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: ORANGE, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false }));
+                      plane.visible = false;
+                      addTemp(plane, t => { plane.visible = t > 3.4; });
+                      M.pts.forEach((p, i) => { const yh = f(p[0], p[1]); segs.push({ a: V(p[0], M.y[i], p[1]), b: V(p[0], yh, p[1]), color: M.y[i] >= yh ? PINK : BLUE }); });
+                      reveal(makeSegments(segs, 0.75), 4.0, 7.5);
+                      const b = M.fit.beta;
+                      hud("Two predictors need a third dimension, and the best fit becomes a plane. Each slope is the change in y for one unit of that predictor while the other is held fixed.",
+                          `<span class="eq">\u0177 = ${num(b[0])} ${signed(b[1])}x\u2081 ${signed(b[2])}x\u2082</span><br>R\u00B2 = ${num(M.fit.r2, 3)} &nbsp; adjusted R\u00B2 = ${num(M.adjR2, 3)}<br>` +
+                          `<span class="dim">Generated from y = 1 + 0.6x\u2081 \u2212 0.5x\u2082 + noise. Drag to look along the plane.</span>`);
+                  } },
+
+                // ---- Quadratic data ----
+                { ch: 'non', title: "Non-Linear Data (Quadratic)", dur: 6, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.quad, true); drawAxes();
+                      hud("A U-shaped relationship. Linear correlation misses it almost completely, even though y clearly depends on x.",
+                          `r = ${num(D.quad.r, 3)}<br><span class="dim">r near zero means no linear relationship, not no relationship.</span>`);
+                  } },
+                // ---- Wrong model residuals ----
+                { ch: 'non', title: "A Straight Line on Curved Data", dur: 8, cam: 'front', grid: true,
+                  enter() {
+                      residualPlot(D.quad, D.quad.line.f, 0.7);
+                      hud("Fit a straight line to the U-shaped data anyway and plot the residuals. They trace a clear curve instead of a shapeless band: the model has the wrong shape.",
+                          `Linear fit R\u00B2 = ${num(D.quad.line.r2, 3)}<br><span class="dim">A pattern in the residuals is the signal to change the model.</span>`);
+                  } },
+                // ---- Polynomial regression ----
+                { ch: 'non', title: "Polynomial Regression", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.quad, false); drawAxes(); drawFitAndResiduals(D.quad);
+                      const b = D.quad.fit.beta;
+                      hud("Adding an x\u00B2 term lets the fitted curve bend. It is still estimated by least squares.",
+                          `<span class="eq">\u0177 = ${num(b[0])} ${signed(b[1])}x ${signed(b[2], 3)}x\u00B2</span> &nbsp; R\u00B2 = ${num(D.quad.fit.r2, 3)}<br>` + residualKey);
+                  } },
+                // ---- Exponential data ----
+                { ch: 'non', title: "Non-Linear Data (Exponential)", dur: 6, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.exp, true); drawAxes();
+                      hud("Exponential growth: y is multiplied by a constant factor for every one-unit step in x.",
+                          `<span class="dim">Generated from y = 2.5 &times; 1.2<sup>x</sup> \u2212 10 + noise</span>`);
+                  } },
+                // ---- Exponential regression ----
+                { ch: 'non', title: "Non-Linear Regression (Exponential)", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.exp, false); drawAxes(); drawFitAndResiduals(D.exp);
+                      const f = D.exp.fit;
+                      hud("The growth rate sits in the exponent, so the model is non-linear in its parameters and is fitted by numerical search for the smallest squared error.",
+                          `<span class="eq">\u0177 = ${num(f.beta[1])} &times; ${num(f.q, 3)}<sup>x</sup> ${signed(f.beta[0])}</span> &nbsp; R\u00B2 = ${num(f.r2, 3)}<br>` + residualKey);
+                  } },
+                // ---- Sinusoidal data ----
+                { ch: 'non', title: "Non-Linear Data (Sinusoidal)", dur: 6, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.sin, true); drawAxes();
+                      hud("A repeating cycle, the shape behind seasonal patterns.",
+                          `r = ${num(D.sin.r, 3)}<br><span class="dim">Generated from y = 6 sin(0.6x) + noise</span>`);
+                  } },
+                // ---- Sinusoidal regression ----
+                { ch: 'non', title: "Non-Linear Regression (Sinusoidal)", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.sin, false); drawAxes(); drawFitAndResiduals(D.sin);
+                      const f = D.sin.fit, amp = Math.hypot(f.beta[1], f.beta[2]), phase = Math.atan2(f.beta[2], f.beta[1]);
+                      hud("Amplitude, frequency and phase are all estimated from the data.",
+                          `<span class="eq">\u0177 = ${num(amp)} sin(${num(f.q, 3)}x ${signed(phase)}) ${signed(f.beta[0])}</span><br>` +
+                          `R\u00B2 = ${num(f.r2, 3)} &nbsp; period = ${num(2 * Math.PI / f.q)}<br>` + residualKey);
+                  } },
+
+                // ---- Time series ----
+                { ch: 'time', title: "Time Series Data", dur: 7, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.ts, true); drawAxes();
+                      hud("One variable observed at 150 equally spaced times. Order now matters: each value is related to the ones just before it.",
+                          `<span class="dim">Series = trend + season + autocorrelated noise</span>`);
+                  } },
+                // ---- Time series trend ----
+                { ch: 'time', title: "Time Series Trend", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      toScatter(D.ts, false); drawAxes();
+                      const ts = D.ts;
+                      reveal(makeLine(ts.x.map((x, i) => V(x, ts.y[i], 0)), 0xffffff, 0.55), 0.2, 2.6);
+                      reveal(makeTube(ts.ma.map(p => V(p.x, p.y, 0.05)), YELLOW, 0.07), 2.8, 4.6);
+                      reveal(makeTube(curvePoints(ts.fit.f, -10, 10, 0.5), ORANGE, 0.07), 4.8, 6.2);
+                      hud("Connect the points in time order, smooth out the season with a moving average, then estimate the trend.",
+                          `<span class="eq">trend = ${num(ts.fit.beta[0])} ${signed(ts.fit.beta[1])}t</span><br>` +
+                          `Lag-1 autocorrelation after detrending: ${num(ts.r1, 2)}<br>` +
+                          `<span class="dim"><span class="key" style="background:#ffe14d"></span>moving average (one season) &nbsp; ` +
+                          `<span class="key" style="background:#ff8800"></span>least-squares trend</span>`);
+                  } },
+                // ---- Correlogram ----
+                { ch: 'time', title: "Autocorrelation (Correlogram)", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      const A = D.ts.acf, H = 6, bound = D.ts.bound, segs = [];
+                      setAll((u, i) => {
+                          const k = Math.floor(i / 5), j = i % 5 + 1, a = A[k];
+                          u.target.set(-8.5 + k * 0.62, a.r * H * j / 5, 0);
+                          u.col.setHex(Math.abs(a.r) > bound ? CYAN : 0x2f6f85); u.scale = j === 5 ? 0.8 : 0.4; u.pulse = false; u.delay = k * 0.04;
+                      });
+                      A.forEach((a, k) => segs.push({ a: V(-8.5 + k * 0.62, 0, 0), b: V(-8.5 + k * 0.62, a.r * H, 0), color: Math.abs(a.r) > bound ? CYAN : 0x2f6f85 }));
+                      reveal(makeSegments(segs, 0.8), 1.5, 4.0);
+                      addTemp(makeLine([V(-9.3, 0, -0.1), V(10.3, 0, -0.1)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(-9.3, bound * H, 0), V(10.3, bound * H, 0)], RED, 0.8));
+                      addTemp(makeLine([V(-9.3, -bound * H, 0), V(10.3, -bound * H, 0)], RED, 0.8));
+                      const low = A.reduce((m, a) => a.r < m.r ? a : m, A[0]);
+                      hud("Correlate the detrended series with a copy of itself shifted by k steps. Each stem is one lag (3, 6, \u2026, 90). Stems outside the red band are larger than pure noise would give.",
+                          `Lag 3: r = ${num(A[0].r)} &nbsp; lowest at lag ${low.lag}: r = ${num(low.r)}<br>` +
+                          `<span class="dim">The wave is the season: values half a cycle apart move oppositely, a full cycle apart (about 59 steps) together again.</span>`);
+                  } },
+                // ---- Panel data ----
+                { ch: 'time', title: "Panel Data", dur: 8, cam: 'panel', grid: false, floor: true,
+                  enter() {
+                      setAll((u, i) => {
+                          const g = Math.floor(i / perGroup);
+                          u.target.copy(D.panel.pos[i]); u.col.setHex(groupConfigs[g].color);
+                          u.scale = 1; u.pulse = false; u.delay = (i % perGroup) * 0.02;
+                      });
+                      D.panel.entities.forEach(e => addTemp(makeLine([V(-11, 0, e.z), V(11, 0, e.z)], 0x2a6f8f, 0.9)));
+                      hud("The same 3 entities followed over the same 50 periods: a cross-section and a time series at once.",
+                          `<span class="dim">N = 3 entities &times; T = 50 periods = 150 observations (balanced panel)</span>`);
+                  } },
+                // ---- Panel trajectories ----
+                { ch: 'time', title: "Panel Data Trajectories", dur: 10, cam: 'panel', grid: false, floor: true,
+                  enter() {
+                      setAll((u, i) => {
+                          const g = Math.floor(i / perGroup);
+                          u.target.copy(D.panel.pos[i]); u.col.setHex(groupConfigs[g].color); u.scale = 1; u.pulse = false; u.delay = 0;
+                      });
+                      D.panel.entities.forEach((e, g) => {
+                          addTemp(makeLine([V(-11, 0, e.z), V(11, 0, e.z)], 0x2a6f8f, 0.9));
+                          reveal(makeLine(e.x.map((x, k) => V(x, e.y[k], e.z)), groupConfigs[g].color, 0.7), 0.2 + g * 0.6, 2.2 + g * 0.6);
+                          reveal(makeTube([V(-10, e.fit.f(-10), e.z), V(10, e.fit.f(10), e.z)], 0xffffff, 0.05), 4.0 + g * 0.5, 5.2 + g * 0.5);
+                      });
+                      hud("Each entity has its own path. Pooling all 150 points into one regression would average the paths away.",
+                          D.panel.entities.map((e, g) => groupLine(g, `entity ${g + 1} slope ${num(e.fit.beta[1])}`)).join('') +
+                          `Pooled slope (ignoring entity): ${num(D.panel.pooled.beta[1])}`);
+                  } },
+
+                // ================= TREATMENT AND CONTROL GROUPS =================
+                // ---- Random assignment ----
+                { ch: 'trt', title: "Random Assignment", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const R = D.rct;
+                      this.split = false;
+                      setAll((u, i) => { u.target.set(-4.34 + (i % 15) * 0.62, -2.8 + Math.floor(i / 15) * 0.62, 0); u.col.setHex(0xbfd8e6); u.scale = 1; u.pulse = false; u.delay = 0; });
+                      addTemp(makeLine([V(-15.5, -5, 0), V(15.5, -5, 0)], 0x2a6f8f, 0.9), t => { tempObjects[0].visible = t > 2.6; });
+                      tempObjects[0].visible = false;
+                      R.ci.forEach((c, a) => {
+                          const x = (a ? 8 : -8) + (c.baseMean - 50) * 0.25;
+                          reveal(makeTube([V(x, -5, 0.12), V(x, 1.5, 0.12)], 0xffffff, 0.035), 6.0, 6.8);
+                      });
+                      hud("Start with 150 comparable units. Chance alone decides who gets the treatment, so the two groups are alike on average in everything, measured or not, before the treatment starts.",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>control n = 75, baseline mean ${num(R.ci[0].baseMean, 1)}<br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span>treatment n = 75, baseline mean ${num(R.ci[1].baseMean, 1)}<br>` +
+                          `<span class="dim">Each plot shows a baseline characteristic. The small gap between the means is chance imbalance.</span>`);
+                  },
+                  update(t) {
+                      if (t > 2.6 && !this.split) {
+                          this.split = true;
+                          setAll((u, i) => { u.target.copy(D.rct.basePos[i]); u.col.setHex(ARM[D.rct.arm[i]].color); u.delay = 2.6 + D.rct.rank[i] * 0.012; });
+                      }
+                  } },
+                // ---- Treatment effect ----
+                { ch: 'trt', title: "Treatment Effect with 95% Confidence Intervals", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const R = D.rct, Y = v => (v - R.gm) * 0.35, w = R.w;
+                      setAll((u, i) => { u.target.copy(R.outPos[i]); u.col.setHex(ARM[R.arm[i]].color); u.scale = 0.9; u.pulse = false; u.delay = R.rank[i] * 0.008; });
+                      R.ci.forEach((c, a) => {
+                          const x = a ? 2.6 : -2.6;
+                          reveal(makeTube([V(x, Y(c.lo), 0.1), V(x, Y(c.hi), 0.1)], 0xffffff, 0.05), 2.5, 3.3);
+                          reveal(makeTube([V(x - 0.5, Y(c.m), 0.1), V(x + 0.5, Y(c.m), 0.1)], 0xffffff, 0.07), 2.5, 3.3);
+                          addTemp(makeLine([V(x - 0.4, Y(c.lo), 0.1), V(x + 0.4, Y(c.lo), 0.1)], 0xffffff, 1));
+                          addTemp(makeLine([V(x - 0.4, Y(c.hi), 0.1), V(x + 0.4, Y(c.hi), 0.1)], 0xffffff, 1));
+                          addTemp(makeLine([V(x, Y(c.m), 0), V(0, Y(c.m), 0)], 0xffffff, 0.4));
+                      });
+                      reveal(makeTube([V(0, Y(R.ci[0].m), 0.1), V(0, Y(R.ci[1].m), 0.1)], YELLOW, 0.09), 4.2, 5.2);
+                      hud("After the treatment, measure the outcome. Because assignment was random, the difference between the group means estimates the average treatment effect (yellow). White bars are each mean with its 95% confidence interval.",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>control mean ${num(w.ma)} &nbsp; <span class="chip" style="background:${ARM[1].css}"></span>treatment mean ${num(w.mb)}<br>` +
+                          `<span class="eq">effect = ${num(w.diff)}</span> &nbsp; 95% CI ${num(w.lo)} to ${num(w.hi)}<br>` +
+                          `${pText(w.p)} &nbsp; Cohen's d = ${num(w.d)}<br><span class="dim">True effect built into the data: 6.</span>`);
+                  } },
+                // ---- Confounding ----
+                { ch: 'trt', title: "Without Randomisation: Confounding", dur: 11, cam: 'front', grid: true,
+                  enter() {
+                      const O = D.obs, X = b => (b - 50) * 0.35, Y = v => (v - O.gm) * 0.35, f = (b, a) => O.fit.f([b, a]);
+                      setAll((u, i) => { u.target.set(X(O.pts[i][0]), Y(O.y[i]), 0); u.col.setHex(ARM[O.arm[i]].color); u.scale = 0.9; u.pulse = false; u.delay = i * 0.006; });
+                      [0, 1].forEach(a => {
+                          const m = a ? O.m1 : O.m0;
+                          reveal(makeLine([V(-11, Y(m), 0), V(11.4, Y(m), 0)], ARM[a].color, 0.6), 2.0, 3.0);
+                          reveal(makeTube([V(X(22), Y(f(22, a)), 0.1), V(X(78), Y(f(78, a)), 0.1)], ARM[a].color, 0.07), 5.0, 6.2);
+                      });
+                      reveal(makeTube([V(11.4, Y(O.m0), 0.1), V(11.4, Y(O.m1), 0.1)], 0xffffff, 0.08), 3.0, 3.8);
+                      reveal(makeTube([V(0, Y(f(50, 0)), 0.2), V(0, Y(f(50, 1)), 0.2)], YELLOW, 0.09), 6.4, 7.2);
+                      hud("Here people chose their own group, and those with a high baseline (horizontal axis) chose treatment more often. The raw gap between group means (white, right) mixes the treatment with that head start. Comparing like with like, the gap between the parallel lines (yellow) is the adjusted effect.",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>baseline mean ${num(O.b0, 1)} &nbsp; <span class="chip" style="background:${ARM[1].css}"></span>baseline mean ${num(O.b1, 1)}<br>` +
+                          `Naive difference ${num(O.naive)} &nbsp; <span class="eq">adjusted ${num(O.adjusted)}</span> &nbsp; true 6<br>` +
+                          `<span class="dim">Adjustment only removes confounders you measured. Randomisation handles the rest.</span>`);
+                  } },
+                // ---- Difference in differences ----
+                { ch: 'trt', title: "Difference-in-Differences", dur: 12, cam: 'front', grid: true,
+                  enter() {
+                      const A = D.did, X = p => (p - 7) * 1.3, Y = v => (v - 6) * 1.3;
+                      setAll((u, i) => {
+                          const a = i < 75 ? 0 : 1, j = i % 75, p = Math.floor(j / 5), un = j % 5;
+                          u.target.set(X(p) + (un - 2) * 0.12, Y(A.val[i]), 0); u.col.setHex(ARM[a].color); u.scale = 0.6; u.pulse = false; u.delay = p * 0.08;
+                      });
+                      addTemp(makeLine([V(X(7.5), -8, 0), V(X(7.5), 9, 0)], 0xffffff, 0.6));
+                      [0, 1].forEach(a => reveal(makeTube(A.pm[a].map((m, p) => V(X(p), Y(m), 0.1)), ARM[a].color, 0.06), 2.2, 4.4));
+                      const shift = A.Tpre - A.Cpre, cf = [];
+                      for (let p = 7; p < 15; p++) cf.push(V(X(p), Y(A.pm[0][p] + shift), 0.1));
+                      reveal(makeLine(cf, YELLOW, 1), 5.0, 6.5);
+                      reveal(makeTube([V(X(14) + 1, Y(A.Cpost + shift), 0.1), V(X(14) + 1, Y(A.Tpost), 0.1)], YELLOW, 0.09), 6.8, 7.6);
+                      hud("When you cannot randomise: follow both groups before and after the treatment starts (white line). The control group shows what time alone did. Shift its path up to the treated group's starting level (thin yellow) and the remaining gap is the effect.",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>control: before ${num(A.Cpre)}, after ${num(A.Cpost)}, change ${num(A.Cpost - A.Cpre)}<br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span>treatment: before ${num(A.Tpre)}, after ${num(A.Tpost)}, change ${num(A.Tpost - A.Tpre)}<br>` +
+                          `<span class="eq">difference-in-differences = ${num(A.did)}</span> &nbsp; true 3<br>` +
+                          `<span class="dim">Valid only if the two groups would have moved in parallel without the treatment.</span>`);
+                  } },
+                // ---- Regression discontinuity ----
+                { ch: 'trt', title: "Regression Discontinuity", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const R = D.rd;
+                      setAll((u, i) => { u.target.set(R.x[i], R.y[i], 0); u.col.setHex(ARM[R.x[i] >= 0 ? 1 : 0].color); u.scale = 0.9; u.pulse = false; u.delay = i * 0.006; });
+                      addTemp(makeLine([V(-11, -8, -0.1), V(11, -8, -0.1)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(0, -9, 0), V(0, 9, 0)], 0xffffff, 0.6));
+                      reveal(makeTube([V(-10, R.fl.f(-10), 0.1), V(0, R.fl.f(0), 0.1)], 0xffffff, 0.07), 2.4, 3.6);
+                      reveal(makeTube([V(0, R.fr.f(0), 0.1), V(10, R.fr.f(10), 0.1)], 0xffffff, 0.07), 3.6, 4.8);
+                      reveal(makeTube([V(0, R.fl.f(0), 0.2), V(0, R.fr.f(0), 0.2)], YELLOW, 0.1), 5.2, 6.0);
+                      hud("Treatment is given by a rule: everyone at or above a cutoff score (white line) gets it. Units just either side of the cutoff are almost identical, so the jump between the two fitted lines at the cutoff is the effect there.",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>below cutoff n = ${R.nL} &nbsp; <span class="chip" style="background:${ARM[1].css}"></span>at or above n = ${R.nR}<br>` +
+                          `<span class="eq">jump at cutoff = ${num(R.jump)}</span> &nbsp; true 4<br>` +
+                          `<span class="dim">A local estimate: it speaks for units near the cutoff, not for everyone.</span>`);
+                  } },
+                // ---- Dose response ----
+                { ch: 'trt', title: "Dose-Response", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const Dz = D.dose, Y = v => (v - 3.5) * 1.3, c0 = new THREE.Color(CTRL), c1 = new THREE.Color(TRT);
+                      setAll((u, i) => { const d = Math.floor(i / 30); u.target.copy(Dz.pos[i]); u.col.copy(c0).lerp(c1, d / 4); u.scale = 0.9; u.pulse = false; u.delay = d * 0.35 + (i % 30) * 0.01; });
+                      addTemp(makeLine([V(-13, Y(0), -0.1), V(13, Y(0), -0.1)], 0x2a6f8f, 0.9));
+                      Dz.stats.forEach((s, d) => {
+                          const x = -10 + d * 5;
+                          reveal(makeTube([V(x, Y(s.lo), 0.4), V(x, Y(s.hi), 0.4)], 0xffffff, 0.05), 3.0 + d * 0.3, 3.6 + d * 0.3);
+                          reveal(makeTube([V(x - 0.6, Y(s.m), 0.4), V(x + 0.6, Y(s.m), 0.4)], 0xffffff, 0.07), 3.0 + d * 0.3, 3.6 + d * 0.3);
+                      });
+                      reveal(makeLine(Dz.stats.map((s, d) => V(-10 + d * 5, Y(s.m), 0.4)), YELLOW, 1), 5.0, 6.5);
+                      hud("More than two arms: a control group (dose 0, left) and four increasing doses. If the outcome climbs step by step with the dose, that pattern is much harder to explain by chance or bias than a single difference.",
+                          Dz.stats.map((s, d) => `dose ${d}: mean ${num(s.m)}`).join(' &nbsp; ') +
+                          `<br><span class="dim">White bars: mean and 95% CI. The gains shrink at high doses, so a straight line would misdescribe it.</span>`);
+                  } },
+                // ---- Survival ----
+                { ch: 'trt', title: "Survival Curves (Kaplan-Meier)", dur: 12, cam: 'front', grid: true,
+                  enter() {
+                      const K = D.km, X = t => -6 + t * 16 / K.T, Y = sv => -7 + 11 * sv;
+                      setAll((u, i) => {
+                          const a = i < 75 ? 0 : 1, k = i % 75, A = K.arms[a];
+                          if (k < A.events) u.target.set(X(A.t[k]), Y(1 - (k + 1) / 75), 0);
+                          else u.target.set(X(K.T) + 0.4 + (k - A.events) * 0.3, Y(A.sEnd), 0);
+                          u.col.setHex(ARM[a].color); u.scale = 0.55; u.pulse = false; u.delay = k * 0.03;
+                      });
+                      addTemp(makeLine([V(-6, Y(0), -0.1), V(10, Y(0), -0.1)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(-6, Y(0), -0.1), V(-6, Y(1), -0.1)], 0x2a6f8f, 0.9));
+                      addTemp(makeLine([V(10, Y(0), -0.1), V(10, Y(1), -0.1)], 0xffffff, 0.5));
+                      addTemp(makeLine([V(-6, Y(0.5), -0.1), V(10, Y(0.5), -0.1)], YELLOW, 0.5));
+                      K.arms.forEach((A, a) => {
+                          const pts = [V(X(0), Y(1), 0.05)];
+                          for (let k = 0; k < A.events; k++) pts.push(V(X(A.t[k]), Y(1 - k / 75), 0.05), V(X(A.t[k]), Y(1 - (k + 1) / 75), 0.05));
+                          pts.push(V(X(K.T), Y(A.sEnd), 0.05));
+                          reveal(makeLine(pts, ARM[a].color, 1), 0.5, 5.5);
+                      });
+                      const med = A => A.median == null ? 'not reached' : num(A.median, 1) + ' months';
+                      hud("When the outcome is time until an event, plot the share of each group still event-free as time passes. Each dot is one event and one step down. Dots past the white end line were still event-free when follow-up stopped (censored).",
+                          `<span class="chip" style="background:${ARM[0].css}"></span>control: median ${med(K.arms[0])}, ${num(100 * K.arms[0].sEnd, 0)}% event-free at 12 months<br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span>treatment: median ${med(K.arms[1])}, ${num(100 * K.arms[1].sEnd, 0)}% event-free at 12 months<br>` +
+                          `Log-rank test: \u03C7\u00B2 = ${num(K.chi2)}, ${pText(K.p)}<br>` +
+                          `<span class="dim"><span class="key" style="background:#ffe14d"></span>50% line: where a curve crosses it is the median survival time.</span>`);
+                  } },
+
+                // ================= ECONOMICS EXAMPLES =================
+                // ---- GDP by expenditure ----
+                { ch: 'eco', title: "GDP by Expenditure: Y = C + I + G + NX", dur: 11, cam: 'front', grid: true,
+                  enter() {
+                      const E = D.gdp, S = 0.075, B = -6, X = t => -6.5 + t * 1.85;
+                      setAll((u, i) => {
+                          const t = Math.floor(i / 15), j = i % 15, c = E.years[t], lo = Math.min(0, c.NX), hi = c.C + c.I + c.G + Math.max(0, c.NX);
+                          const v = lo + (j + 0.5) / 15 * (hi - lo);
+                          const key = v < 0 ? 'NX' : v < c.C ? 'C' : v < c.C + c.I ? 'I' : v < c.C + c.I + c.G ? 'G' : 'NX';
+                          u.target.set(X(t), B + v * S, 0); u.col.setHex(EC[key].color); u.scale = 0.7; u.pulse = false; u.delay = t * 0.25 + j * 0.02;
+                      });
+                      E.years.forEach((c, t) => {
+                          const cig = c.C + c.I + c.G;
+                          [['C', 0, c.C], ['I', c.C, c.C + c.I], ['G', c.C + c.I, cig], ['NX', Math.min(cig, cig + c.NX), Math.max(cig, cig + c.NX)]].forEach(sg => {
+                              let a = sg[1], b = sg[2];
+                              if (sg[0] === 'NX' && c.NX < 0) { a = c.NX; b = 0; }          // a trade deficit is drawn below the axis
+                              const bar = new THREE.Mesh(new THREE.PlaneGeometry(1.3, Math.max(0.01, (b - a) * S)),
+                                  new THREE.MeshBasicMaterial({ color: EC[sg[0]].color, transparent: true, opacity: 0.2, depthWrite: false }));
+                              bar.position.set(X(t), B + (a + b) / 2 * S, -0.3);
+                              addTemp(bar);
+                          });
+                          makeLabel(String(t + 1), X(t), B - 1.5, 0.7);
+                      });
+                      addTemp(makeLine([V(-7.7, B, -0.1), V(11.4, B, -0.1)], 0x4f9fc0, 1));
+                      makeLabel('Year', 12.6, B - 1.5, 0.7);
+                      reveal(makeLine(E.years.map((c, t) => V(X(t), B + c.Y * S, 0.3)), YELLOW, 1), 4.5, 6.5);
+                      const a = E.years[0], z = E.years[9], pc = v => num(100 * v / z.Y, 0) + '%';
+                      hud("Total output measured by who buys it: households (C), firms investing (I), government (G), and foreigners net of imports (NX). Each bar is one year, stacked by component. A trade deficit hangs below the axis and is subtracted.",
+                          Object.keys(EC).map(k => `<span class="chip" style="background:${EC[k].css}"></span>${EC[k].name}`).join(' &nbsp; ') + `<br>` +
+                          `Year 1: Y = ${num(a.Y, 1)} = ${num(a.C, 1)} + ${num(a.I, 1)} + ${num(a.G, 1)} ${signed(a.NX, 1)}<br>` +
+                          `Year 10: Y = ${num(z.Y, 1)} = ${num(z.C, 1)} + ${num(z.I, 1)} + ${num(z.G, 1)} ${signed(z.NX, 1)}<br>` +
+                          `<span class="dim">Year 10 shares: C ${pc(z.C)}, I ${pc(z.I)}, G ${pc(z.G)}, NX ${pc(z.NX)}. <span class="key" style="background:#ffe14d"></span>total Y</span>`);
+                  } },
+                // ---- Growth rate ----
+                { ch: 'eco', title: "GDP Growth Rate", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const E = D.gdp, H = 1.0, B = -3, X = k => -8 + k * 2, segs = [];
+                      setAll((u, i) => {
+                          const k = Math.min(8, Math.floor(i / 16)), j = i % 16 + 1, g = E.growth[k].g, spare = i >= 144;
+                          u.target.set(X(k), spare ? B : B + g * H * j / 16, 0); u.col.setHex(g >= 0 ? CYAN : RED);
+                          u.scale = spare ? 0.001 : (j === 16 ? 0.9 : 0.45); u.pulse = false; u.delay = k * 0.2;
+                      });
+                      E.growth.forEach((r, k) => {
+                          segs.push({ a: V(X(k), B, 0), b: V(X(k), B + r.g * H, 0), color: r.g >= 0 ? CYAN : RED });
+                          makeLabel(String(k + 2), X(k), B - 4.6, 0.7);
+                          makeLabel(num(r.g, 1) + '%', X(k), B + r.g * H + (r.g >= 0 ? 0.9 : -0.9), 0.65, '#e9f6ff');
+                      });
+                      reveal(makeSegments(segs, 0.9), 1.5, 3.5);
+                      addTemp(makeLine([V(-9.3, B, -0.1), V(9.3, B, -0.1)], 0x4f9fc0, 1));
+                      makeLabel('Year', 10.6, B - 4.6, 0.7);
+                      reveal(makeLine(E.growth.map((r, k) => V(X(k), B + r.g * H, 0.1)), YELLOW, 0.9), 3.8, 5.6);
+                      const last = E.growth[8], avg = (Math.pow(E.years[9].Y / E.years[0].Y, 1 / 9) - 1) * 100;
+                      hud("Growth rate = (Y this year \u2212 Y last year) / Y last year \u00D7 100. Because Y = C + I + G + NX, each year's growth splits exactly into the contribution of each component.",
+                          `<span class="eq">Average growth ${num(avg, 1)}% a year</span> (compound)<br>` +
+                          `Year 10: ${num(last.g, 1)}% = C ${num(last.C, 1)} + I ${num(last.I, 1)} + G ${num(last.G, 1)} + NX ${num(last.NX, 1)} points<br>` +
+                          `Year ${E.shock + 1}: ${num(E.growth[E.shock - 1].g, 1)}%, of which investment ${num(E.growth[E.shock - 1].I, 1)} points<br>` +
+                          `<span class="dim">The slump year shows how a fall in investment alone can pull the whole economy down.</span>`);
+                  } },
+                // ---- Consumption function ----
+                { ch: 'eco', title: "Consumption Function: C = a + bY", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const M = D.macro, X = v => -9 + v * 0.9, Y = v => -8 + v * 0.9, b = M.cfit.beta;
+                      setAll((u, i) => { u.target.set(X(M.cy[i]), Y(M.cc[i]), 0); u.col.setHex(CYAN); u.scale = 0.85; u.pulse = false; u.delay = i * 0.006; });
+                      ecoAxes(X(0), Y(0), X(21), Y(17.5), 'Income Y', 'Consumption C');
+                      reveal(makeLine([V(X(0), Y(0), 0), V(X(17.5), Y(17.5), 0)], 0xffffff, 0.6), 2.2, 3.4);
+                      makeLabel('C = Y', X(17.5) + 1.2, Y(17.5) + 0.4, 0.65, '#e9f6ff');
+                      reveal(makeTube([V(X(0), Y(M.cfit.f(0)), 0.1), V(X(20), Y(M.cfit.f(20)), 0.1)], ORANGE, 0.08), 3.6, 5.2);
+                      const be = b[0] / (1 - b[1]);
+                      reveal(makeLine([V(X(be), Y(0), 0.1), V(X(be), Y(be), 0.1)], YELLOW, 0.9), 5.6, 6.4);
+                      hud("Households spend a base amount even with no income (a), plus a fixed share of each extra unit of income (b, the marginal propensity to consume). Along the white 45\u00B0 line spending equals income; below it people save.",
+                          `<span class="eq">\u0108 = ${num(b[0])} ${signed(b[1])}Y</span> &nbsp; R\u00B2 = ${num(M.cfit.r2, 3)}<br>` +
+                          `MPC = ${num(b[1])} &nbsp; MPS = ${num(1 - b[1])} &nbsp; multiplier 1/(1 \u2212 MPC) = ${num(1 / (1 - b[1]), 1)}<br>` +
+                          `<span class="dim"><span class="key" style="background:#ffe14d"></span>break-even income ${num(be, 1)}: left of it households dissave, right of it they save.</span>`);
+                  } },
+                // ---- Investment function ----
+                { ch: 'eco', title: "Investment Function: I = I\u2080 \u2212 d\u00B7r", dur: 9, cam: 'front', grid: true,
+                  enter() {
+                      const M = D.macro, X = v => -9 + v * 1.45, Y = v => -8 + v * 1.1, b = M.ifit.beta;
+                      setAll((u, i) => { u.target.set(X(M.ir[i]), Y(M.ii[i]), 0); u.col.setHex(EC.I.color); u.scale = 0.85; u.pulse = false; u.delay = i * 0.006; });
+                      ecoAxes(X(0), Y(0), X(12.8), Y(12.5), 'Interest rate r (%)', 'Investment I');
+                      reveal(makeTube([V(X(0), Y(M.ifit.f(0)), 0.1), V(X(12.5), Y(M.ifit.f(12.5)), 0.1)], 0xffffff, 0.08), 2.6, 4.2);
+                      hud("Firms borrow to invest, so a higher interest rate makes fewer projects worth doing. Investment falls as the rate rises: a downward-sloping line.",
+                          `<span class="eq">\u00CE = ${num(b[0])} ${signed(b[1])}r</span> &nbsp; R\u00B2 = ${num(M.ifit.r2, 3)}<br>` +
+                          `Each extra percentage point of interest cuts investment by about ${num(-b[1])}.<br>` +
+                          `<span class="dim">I\u2080 = ${num(b[0], 1)} is the investment that would happen at a zero rate.</span>`);
+                  } },
+                // ---- Government ----
+                { ch: 'eco', title: "Government: Spending G and Taxes T = tY", dur: 10, cam: 'front', grid: true,
+                  enter() {
+                      const M = D.macro, X = v => -9 + v * 0.9, Y = v => -8 + v * 1.8, g = M.gfit, tx = M.tfit;
+                      setAll((u, i) => {
+                          if (i < 75) { u.target.set(X(M.gy[i]), Y(M.gg[i]), 0); u.col.setHex(EC.G.color); }
+                          else { u.target.set(X(M.ty[i - 75]), Y(M.tt[i - 75]), 0); u.col.setHex(TRT); }
+                          u.scale = 0.85; u.pulse = false; u.delay = (i % 75) * 0.012;
+                      });
+                      ecoAxes(X(0), Y(0), X(21), Y(7), 'Income Y', 'G and T');
+                      reveal(makeTube([V(X(0), Y(g.f(0)), 0.1), V(X(20), Y(g.f(20)), 0.1)], EC.G.color, 0.07), 2.4, 3.6);
+                      reveal(makeTube([V(X(0), Y(tx.f(0)), 0.1), V(X(20), Y(tx.f(20)), 0.1)], TRT, 0.07), 3.6, 4.8);
+                      const bal = (g.beta[0] - tx.beta[0]) / (tx.beta[1] - g.beta[1]);
+                      reveal(makeLine([V(X(bal), Y(0), 0.1), V(X(bal), Y(g.f(bal)), 0.1)], YELLOW, 0.9), 5.2, 6.0);
+                      hud("Government spending is set by policy, not by this year's income, so it plots as a flat line: G = G\u2080. Tax revenue rises with income: T = tY. Where the two lines cross, the budget balances.",
+                          `<span class="chip" style="background:${EC.G.css}"></span><span class="eq">G = ${num(mean(M.gg))}</span> (slope ${num(g.beta[1], 3)}, effectively zero)<br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span><span class="eq">T = ${num(tx.beta[0])} ${signed(tx.beta[1])}Y</span> &nbsp; tax rate about ${num(100 * tx.beta[1], 0)}%<br>` +
+                          `<span class="dim"><span class="key" style="background:#ffe14d"></span>balanced budget at Y = ${num(bal, 1)}. Lower income means a deficit (G above T), higher income a surplus.</span>`);
+                  } },
+                // ---- Inequality: parade then Lorenz curve ----
+                { ch: 'eco', title: "Rich and Poor: Lorenz Curve and Gini Coefficient", dur: 14, cam: 'front', grid: true,
+                  enter() {
+                      const N = D.incomes, P = p => -7 + 14 * p;
+                      this.lorenz = false;
+                      const tone = i => i < 30 ? BLUE : i >= 120 ? TRT : CYAN;
+                      setAll((u, i) => { u.target.set(-10 + 20 * i / (totalPoints - 1), -7 + N.inc[i] / N.max * 13, 0); u.col.setHex(tone(i)); u.scale = 0.7; u.pulse = false; u.delay = i * 0.01; });
+                      const show = (obj, t0) => { obj.visible = false; animators.push(t => { obj.visible = t > t0; }); return obj; };
+                      show(addTemp(makeLine([V(P(0), P(0), -0.1), V(P(1), P(0), -0.1), V(P(1), P(1), -0.1)], 0x4f9fc0, 1)), 5);
+                      show(makeLabel('Share of people, poorest first', 0, P(0) - 1.0, 0.7), 5);
+                      show(makeLabel('Share of income', P(1) + 4.2, 0, 0.7), 5);
+                      reveal(makeLine([V(P(0), P(0), 0), V(P(1), P(1), 0)], 0xffffff, 0.8), 6.5, 7.5);
+                      const pos = [];
+                      for (let i = 0; i < totalPoints; i++) {
+                          const p0 = i / totalPoints, p1 = (i + 1) / totalPoints, l0 = i ? N.L[i - 1] : 0, l1 = N.L[i];
+                          pos.push(P(p0), P(p0), -0.2, P(p0), P(l0), -0.2, P(p1), P(l1), -0.2,  P(p0), P(p0), -0.2, P(p1), P(l1), -0.2, P(p1), P(p1), -0.2);
+                      }
+                      const geo = new THREE.BufferGeometry();
+                      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+                      show(addTemp(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: YELLOW, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }))), 8);
+                      hud("First, everyone lined up from poorest to richest, height = income: a long flat line and a steep climb at the end. Then the Lorenz curve: add incomes up from the poorest. With perfect equality it would follow the white diagonal. The yellow gap is inequality, and the Gini coefficient is that gap as a share of the whole triangle.",
+                          `<span class="eq">Gini = ${num(N.gini, 3)}</span> &nbsp; <span class="dim">0 = everyone equal, 1 = one person has everything</span><br>` +
+                          `<span class="chip" style="background:#2a9dff"></span>poorest 20% hold ${num(N.bottom20, 1)}% of income<br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span>richest 20% hold ${num(N.top20, 1)}% &nbsp; (richest 10%: ${num(N.top10, 1)}%)<br>` +
+                          `Rich-to-poor gap: the top fifth earns ${num(N.ratio, 1)} times the bottom fifth.`);
+                  },
+                  update(t) {
+                      if (t > 5 && !this.lorenz) {
+                          this.lorenz = true;
+                          setAll((u, i) => { u.target.set(-7 + 14 * (i + 1) / totalPoints, -7 + 14 * D.incomes.L[i], 0); u.delay = 5 + i * 0.006; });
+                      }
+                  } },
+                // ---- Population pyramid ----
+                { ch: 'eco', title: "Population Pyramid", dur: 10, cam: 'dist', grid: true,
+                  enter() {
+                      const Pp = D.pyr, Y = k => -7 + k * 0.75;
+                      setAll((u, i) => {
+                          const w = Pp.who[i];
+                          u.target.set((w.sex ? 1 : -1) * (1.7 + w.j * 0.62), Y(w.k), 0); u.col.setHex(w.sex ? PINK : BLUE);
+                          u.scale = 1; u.pulse = false; u.delay = w.k * 0.18 + w.j * 0.03;
+                      });
+                      ['0\u20134', '20\u201324', '40\u201344', '60\u201364', '80+'].forEach((txt, n) => makeLabel(txt, 0, Y(n * 4), 0.55, '#e9f6ff'));
+                      makeLabel('Male', -4.5, Y(17) + 0.4, 0.75, '#5cb8ff');
+                      makeLabel('Female', 4.5, Y(17) + 0.4, 0.75, '#ff6fa3');
+                      makeLabel('Age', 0, Y(17) + 0.4, 0.6);
+                      [3, 13].forEach(k => addTemp(makeLine([V(-8, Y(k) - 0.375, -0.1), V(8, Y(k) - 0.375, -0.1)], YELLOW, 0.45)));
+                      hud("Two bar charts back to back: males left, females right, youngest at the bottom, one row per five years of age. A wide base means a young, growing population; a pyramid that bulges in the middle or top means an ageing one.",
+                          `Under 15: ${num(Pp.young, 0)}% &nbsp; 15 to 64: ${num(Pp.work, 0)}% &nbsp; 65 and over: ${num(Pp.old, 0)}%<br>` +
+                          `<span class="eq">Dependency ratio ${num(Pp.dep, 0)}</span> dependants per 100 of working age<br>Median age about ${num(Pp.med, 0)}<br>` +
+                          `<span class="dim">Each dot is 1/150 of the population. Yellow lines mark ages 15 and 65. Women outnumber men at the top because they live longer.</span>`);
+                  } },
+                // ---- Demand and supply ----
+                { ch: 'eco', title: "Demand and Supply", dur: 13, cam: 'front', grid: true,
+                  enter() {
+                      const K = D.market, X = q => -9 + q, Y = p => -7 + p, e0 = K.e0, e1 = K.e1, dn = q => K.d.f(q - K.SHIFT);
+                      this.shifted = false;
+                      setAll((u, i) => {
+                          if (i < 75) { u.target.set(X(K.dq[i]), Y(K.dp[i]), 0); u.col.setHex(CYAN); }
+                          else { u.target.set(X(K.sq[i - 75]), Y(K.sp[i - 75]), 0); u.col.setHex(TRT); }
+                          u.scale = 0.75; u.pulse = false; u.delay = (i % 75) * 0.012;
+                      });
+                      ecoAxes(X(0), Y(0), X(23), Y(13.5), 'Quantity Q', 'Price P');
+                      reveal(makeTube([V(X(0.5), Y(K.d.f(0.5)), 0.1), V(X(18), Y(K.d.f(18)), 0.1)], CYAN, 0.07), 2.2, 3.4);
+                      reveal(makeTube([V(X(0.5), Y(K.s.f(0.5)), 0.1), V(X(21), Y(K.s.f(21)), 0.1)], TRT, 0.07), 3.0, 4.2);
+                      reveal(makeLine([V(X(0), Y(e0.p), 0.15), V(X(e0.q), Y(e0.p), 0.15), V(X(e0.q), Y(0), 0.15)], 0xffffff, 0.9), 4.6, 5.6);
+                      reveal(makeTube([V(X(5.5), Y(dn(5.5)), 0.1), V(X(23), Y(dn(23)), 0.1)], 0x9fdfff, 0.05), 7.6, 8.8);
+                      reveal(makeLine([V(X(0), Y(e1.p), 0.15), V(X(e1.q), Y(e1.p), 0.15), V(X(e1.q), Y(0), 0.15)], YELLOW, 1), 9.2, 10.2);
+                      hud("Buyers want less as the price rises (demand, sloping down); sellers offer more (supply, sloping up). Where the lines cross, the quantity wanted equals the quantity offered. Then demand increases: the whole demand line moves right, and both price and quantity rise.",
+                          `<span class="chip" style="background:#00ffff"></span><span class="eq">demand: P = ${num(K.d.beta[0])} ${signed(K.d.beta[1])}Q</span><br>` +
+                          `<span class="chip" style="background:${ARM[1].css}"></span><span class="eq">supply: P = ${num(K.s.beta[0])} ${signed(K.s.beta[1])}Q</span><br>` +
+                          `Equilibrium: P* = ${num(e0.p)}, Q* = ${num(e0.q)}<br>` +
+                          `<span class="key" style="background:#ffe14d"></span>after demand rises: P* = ${num(e1.p)}, Q* = ${num(e1.q)}<br>` +
+                          `<span class="dim">Above P* there is a surplus, below it a shortage. Here each line is observed directly; real market data show only the crossing points.</span>`);
+                  },
+                  update(t) {
+                      if (t > 6.5 && !this.shifted) {
+                          this.shifted = true;
+                          setAll((u, i) => { if (i < 75) { u.target.x += D.market.SHIFT; u.col.setHex(0x9fdfff); u.delay = 6.5; } });
+                      }
+                  } }
+            ];
+
+            // ================= HUD, PROGRESS, CONTROLS =================
+            const chapterDiv = document.getElementById('chapter');
+            const statusDiv = document.getElementById('status');
+            const noteDiv = document.getElementById('note');
+            const statsDiv = document.getElementById('stats');
+            function hud(note, stats) { noteDiv.textContent = note; statsDiv.innerHTML = stats; }
+
+            const progressDiv = document.getElementById('progress');
+            const segFills = scenes.map((sc, i) => {
+                const b = document.createElement('button');
+                b.title = `${i + 1}. ${sc.title}`; b.setAttribute('aria-label', b.title);
+                b.innerHTML = '<span><i></i></span>';
+                b.addEventListener('click', () => goTo(i));
+                progressDiv.appendChild(b);
+                return b;
+            });
+
+            let cur = 0, sceneT = 0, paused = false, time = 0, tocOpen = false;
+
+            // ----- contents screen: chapters and scenes, built from the scene list -----
+            const tocDiv = document.getElementById('toc'), tocList = document.getElementById('tocList'), tocButtons = [];
+            (function () {
+                let box = null, last = null, chapters = 0;
+                scenes.forEach((sc, i) => {
+                    if (sc.ch !== last) {
+                        last = sc.ch; chapters++;
+                        box = document.createElement('div'); box.className = 'tocCh';
+                        const h = document.createElement('h2');
+                        h.textContent = chapters + '. ' + CH[sc.ch];
+                        box.appendChild(h); tocList.appendChild(box);
+                    }
+                    const b = document.createElement('button'), n = document.createElement('i');
+                    n.textContent = i + 1;
+                    b.appendChild(n); b.appendChild(document.createTextNode(sc.title));
+                    b.addEventListener('click', () => { goTo(i); closeToc(); });
+                    box.appendChild(b); tocButtons.push(b);
+                });
+                tocList.querySelectorAll('.tocCh').forEach(bx => {
+                    const s = document.createElement('span');
+                    s.textContent = bx.querySelectorAll('button').length + ' scenes';
+                    bx.querySelector('h2').appendChild(s);
+                });
+                document.getElementById('tocSub').textContent = scenes.length + ' animated scenes in ' + chapters +
+                    ' chapters. Choose a scene to jump straight to it, or play them all in order. Every loop draws fresh data.';
+            })();
+            function openToc() {
+                tocOpen = true;
+                tocButtons.forEach((b, i) => b.classList.toggle('cur', i === cur));
+                tocDiv.classList.add('open');
+                const c = tocButtons[cur];
+                if (cur > 0 && c.scrollIntoView) c.scrollIntoView({ block: 'center' });
+            }
+            function closeToc() { tocOpen = false; tocDiv.classList.remove('open'); }
+            document.getElementById('tocStart').addEventListener('click', () => { goTo(0); closeToc(); });
+            document.getElementById('tocClose').addEventListener('click', closeToc);
+            document.getElementById('contents').addEventListener('click', openToc);
+            function goTo(i) {
+                clearTempObjects();
+                cur = (i + scenes.length) % scenes.length;
+                sceneT = 0; userCam = false;
+                const sc = scenes[cur];
+                gridHelper.visible = !!sc.grid;
+                floorGrid.visible = !!sc.floor;
+                chapterDiv.textContent = CH[sc.ch];
+                statusDiv.innerText = `Scene ${cur + 1}: ${sc.title}`;
+                sc.enter();
+                segFills.forEach((b, k) => { b.classList.toggle('done', k < cur); b.firstChild.firstChild.style.width = k < cur ? '' : '0'; });
+            }
+            function next() { if (cur === scenes.length - 1) newSample(); goTo(cur + 1); }   // each loop draws a fresh sample
+            function prev() { goTo(cur - 1); }
+            function togglePause() {
+                paused = !paused;
+                document.getElementById('playIcon').setAttribute('d', paused ? 'M4 2v12l9-6z' : 'M3 2h4v12H3zM9 2h4v12H9z');
+                document.getElementById('play').setAttribute('aria-label', paused ? 'Play' : 'Pause');
+            }
+            document.getElementById('prev').addEventListener('click', prev);
+            document.getElementById('next').addEventListener('click', next);
+            document.getElementById('play').addEventListener('click', togglePause);
+            let glowOn = true;
+            function toggleNotes() {
+                const off = document.body.classList.toggle('compact');
+                document.getElementById('notes').setAttribute('aria-label', off ? 'Show notes' : 'Hide notes');
+            }
+            function toggleGlow() {
+                glowOn = !glowOn;
+                document.getElementById('glow').setAttribute('aria-label', glowOn ? 'Turn glow off' : 'Turn glow on');
+            }
+            document.getElementById('notes').addEventListener('click', toggleNotes);
+            document.getElementById('glow').addEventListener('click', toggleGlow);
+            window.addEventListener('keydown', e => {
+                if (e.code === 'KeyC') { tocOpen ? closeToc() : openToc(); return; }
+                if (tocOpen) { if (e.code === 'Escape') closeToc(); return; }      // other keys act on the contents screen itself
+                if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+                else if (e.code === 'ArrowRight') next();
+                else if (e.code === 'ArrowLeft') prev();
+                else if (e.code === 'KeyN') toggleNotes();
+                else if (e.code === 'KeyG') toggleGlow();
+            });
+
+            // ================= ANIMATION LOOP =================
+            const clock = new THREE.Clock();
+            const calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const desiredCam = new THREE.Vector3();
+            const uiDiv = document.getElementById('ui'), barDiv = document.getElementById('bar'), errorDiv = document.getElementById('error');
+            let viewShift = 0;
+            // On narrow screens the notes panel spans the full width, so move the picture into the free space below it.
+            function wantedShift() {
+                const r = uiDiv.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+                if (r.width < W * 0.55) return 0;
+                return Math.max(0, (r.bottom + (H - barDiv.offsetHeight)) / 2 - H / 2);
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                try { frame(); } catch (err) { errorDiv.innerText = "Animation error: " + err.message; console.error(err); }
+            }
+            function frame() {
+                const delta = Math.min(clock.getDelta(), 0.1);
+                time += delta;
+                if (!paused && !tocOpen) sceneT += delta;      // the scene waits while the contents screen is open
+
+                const sc = scenes[cur];
+                if (sc.update) sc.update(sceneT, time);
+                animators.forEach(fn => fn(sceneT));
+
+                // frame-rate independent easing toward each sphere's target
+                const kMove = 1 - Math.exp(-delta * 4.5), kCol = 1 - Math.exp(-delta * 6);
+                spheres.forEach(s => {
+                    const u = s.userData;
+                    if (sceneT >= u.delay) s.position.lerp(u.target, kMove);
+                    s.material.color.lerp(u.col, kCol);
+                    s.material.emissive.copy(s.material.color);
+                    const want = u.scale * (u.pulse ? 1 + 0.22 * Math.sin(time * 6) : 1);
+                    s.scale.setScalar(s.scale.x + (want - s.scale.x) * kCol);
+                });
+
+                // camera: gentle guided moves until the viewer takes over by dragging
+                if (!userCam) {
+                    const d = camDist(), sway = calm ? 0 : 1;
+                    if (sc.cam === 'orbit') { const a = calm ? 0 : time * 0.12; desiredCam.set(Math.sin(a) * d, 4, Math.cos(a) * d); }
+                    else if (sc.cam === 'panel') desiredCam.set(-0.58 * d + sway * Math.sin(time * 0.25) * 3, 0.36 * d, 0.80 * d);
+                    else { const z = sc.cam === 'dist' ? 0.72 * d : d; desiredCam.set(sway * Math.sin(time * 0.22) * 3.5, 1 + sway * Math.sin(time * 0.17), z); }
+                    camera.position.lerp(desiredCam, 1 - Math.exp(-delta * 1.8));
+                }
+                controls.update();
+                if (stars && !calm) stars.rotation.y += delta * 0.004;
+
+                segFills[cur].firstChild.firstChild.style.width = (clamp01(sceneT / sc.dur) * 100).toFixed(1) + '%';
+                if (sceneT > sc.dur) next();
+
+                viewShift += (wantedShift() - viewShift) * (1 - Math.exp(-delta * 5));
+                if (viewShift > 0.5) camera.setViewOffset(window.innerWidth, window.innerHeight, 0, -viewShift, window.innerWidth, window.innerHeight);
+                else if (camera.view) camera.clearViewOffset();
+
+                if (composer && glowOn) composer.render(); else renderer.render(scene, camera);
+            }
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            newSample();
+            goTo(0);
+            openToc();
+            animate();
+
+        } catch (err) {
+            document.getElementById('status').innerText = "Error:";
+            document.getElementById('stats').innerText = "";
+            document.getElementById('error').innerText = err.message;
+            console.error(err);
+        }
+    </script>
+</body>
+</html>
