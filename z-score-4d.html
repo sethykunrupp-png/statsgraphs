@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Z-Score in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+</style>
+</head>
+<body>
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Z equals X minus X bar, divided by S">
+            <span class="p" id="fZ">Z</span><span class="sym">=</span>
+            <span class="frac">
+                <span class="top"><span class="p" id="fX">X</span> <span class="sym">−</span> <span class="p bar" id="fM">X</span></span>
+                <span class="bot"><span class="p" id="fS">S</span></span>
+            </span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- the sample (same one as the standard deviation animation) ----------
+    var V = [1, 4, 5, 8, 8, 10];
+    var N = V.length, M = 6, S = 3;                  // mean 6, standard deviation 3
+    var D = V.map(function (v) { return v - M; });   // -5 -2 -1 +2 +2 +4
+    var L = D.map(Math.abs);
+    var PICK = 5;                                    // the value we follow: X = 10
+    var COL = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff'];
+    var rowY = function (i) { return 6 - i; };
+    var sgn = function (d, dp) { return (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d).toFixed(dp === undefined ? 0 : dp); };
+    var BX = 13, BZ = 2;                             // measuring bench on the floor
+
+    var STEPS = [
+        { t: 'What we already know', n: 'The same six measurements as before, with their mean (cyan line) and their standard deviation S, the white ruler of length 3.',
+          s: '<span class="bar" style="text-decoration:overline">X</span> = 6 · S = 3', on: ['fM', 'fS'] },
+        { t: 'Pick one value, X', n: 'Take the last point, X = 10. Is 10 far from the mean or close to it? The raw number alone cannot tell us.',
+          s: 'X = 10', on: ['fX'] },
+        { t: 'Top of the fraction: X − X̄', n: 'Draw the distance from the mean to the point. Positive means the point is above the mean, negative means below.',
+          s: '10 − 6 = <b>+4</b>', on: ['fX', 'fM'] },
+        { t: 'Carry it to the bench with the ruler', n: 'Set the deviation line down on the right, and bring the S ruler along. Now the distance can be measured with the ruler.',
+          s: 'top: 4 · bottom: S = 3', on: ['fX', 'fM', 'fS'] },
+        { t: 'Bottom of the fraction: divide by S', n: 'Count how many rulers fit along the line. One whole ruler fits, then one third of the next one.',
+          s: '4 ÷ 3 = 1 + ⅓ = <b>1.33</b> rulers', on: ['fS'] },
+        { t: 'That count is Z', n: 'The value 10 sits 1.33 standard deviations above the mean. Z is a distance counted in rulers, so it has no units.',
+          s: 'Z = (10 − 6) ÷ 3 = <b>+1.33</b>', on: ['fZ'] },
+        { t: 'Every value gets a Z', n: 'Mark the wall every S from the mean, then read each point against the marks. Left of the mean gives a negative Z.',
+          s: 'Z: −1.67, −0.67, −0.33, +0.67, +0.67, +1.33', on: ['fZ', 'fX', 'fM', 'fS'] },
+        { t: 'Subtracting X̄ slides zero to the mean', n: 'Doing the top of the fraction for all points is the same as sliding the number line until its zero sits on the mean.',
+          s: 'X − <span style="text-decoration:overline">X</span>: −5, −2, −1, +2, +2, +4', on: ['fX', 'fM'] },
+        { t: 'Dividing by S stretches the ruler', n: 'Stretch the number line until one tick equals one S. Every point now reads its Z. Past ±2 is unusual, and values from different scales can be compared.',
+          s: 'on the Z line: mean = 0 · standard deviation = 1', on: ['fZ', 'fX', 'fM', 'fS'] }
+    ];
+    var NS = STEPS.length, DUR = 8;
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 45, 110);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 90; controls.minDistance = 4;
+
+    var grid = new THREE.GridHelper(60, 60, 0x0b4a5c, 0x0a2233);
+    grid.position.set(14, -0.03, 6); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color) { var m = new THREE.Mesh(postGeo, mat(color)); scene.add(m); return m; }
+    function setPost(m, x, h) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, h / 2 - 0.1, 0); }
+
+    // number line: fixed bar, moving ticks
+    var axis = bar('#3c6d80', 0.5); setBar(axis, -0.5, 0, 0, 13);
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), ticks = [];
+    for (var k = -6; k <= 11; k++) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); scene.add(tk); ticks.push({ k: k, m: tk }); }
+    var guides = [];
+    for (var i = 0; i < N; i++) { var g = bar('#12303d', 0.2); setBar(g, -0.5, rowY(i), -0.02, 13); guides.push(g); }
+
+    var sph = new THREE.SphereGeometry(0.22, 24, 16), pts = [];
+    V.forEach(function (v, i) { var p = new THREE.Mesh(sph, mat(COL[i])); p.position.set(v, rowY(i), 0); scene.add(p); pts.push(p); });
+    var ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 8, 48), mat('#ffffff', 0));
+    ring.position.set(V[PICK], rowY(PICK), 0); scene.add(ring);
+
+    var meanLine = post('#00ffff'); meanLine.scale.x = meanLine.scale.z = 1.4;
+    var marks = [-2, -1, 1, 2].map(function (z) { return { z: z, m: post('#1c8fa6') }; });   // every S from the mean
+    var sdRuler = bar('#ffffff', 1.5);
+
+    var dev = []; for (i = 0; i < N; i++) dev.push(bar(COL[i]));
+    var car = bar(COL[PICK]);                       // deviation carried to the bench
+    var r1 = bar('#ffffff', 1.5), r2 = bar('#ffffff', 1.5), r2part = bar('#ffb454', 1.7);
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0 }; labels.push(o); return o;
+    }
+    ticks.forEach(function (t) { t.lb = label(sgn(t.k).replace('+', ''), 0, -0.5, 0, 'tick'); });
+    var lbAxX = label('X', 13.1, 0, 0, 'tick'), lbAxZ = label('Z', 13.1, 0, 0, 'key');
+    var lbVal = V.map(function (v, i) { return label(String(v), v + (v < M ? -0.55 : 0.55), rowY(i), 0); });
+    var lbMean = label('mean = 6', M, 7.95, 0, 'key');
+    var lbS = label('S = 3', M + 1.5, 7.3, 0, 'key');
+    var lbDev = label('10 − 6 = +4', 8, rowY(PICK) + 0.38, 0, 'eq');
+    var lbOne = label('1 ruler', BX + 1.5, 0.6, BZ + 0.4, 'key');
+    var lbThird = label('+ ⅓', BX + 3.5, 0.6, BZ + 0.4, 'eq');
+    var lbZ = V.map(function (v, i) { return label('Z = ' + sgn(D[i] / S, 2), v, rowY(i) + 0.47, 0, 'eq'); });
+    var lbMark = marks.map(function (mk) { return label(sgn(mk.z) + ' S', M + mk.z * S, 7.55, 0, 'tick'); });
+    var lbUnit = label('one tick = one S', M + 1.5, -1.15, 0, 'key');
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+    function update() {
+        var i;
+        var hl = ph(1.1, 1.4);
+        for (i = 0; i < N; i++) {
+            var s = ph(0.05 + i * 0.07, 0.2 + i * 0.07);
+            var back = i === PICK ? 1 : ph(6.1 + i * 0.15, 6.2 + i * 0.15);
+            var op = lerp(1, 0.22, hl * (1 - back));
+            pts[i].scale.setScalar(Math.max(s, 0.001)); pts[i].visible = s > 0; pts[i].material.opacity = op;
+            lbVal[i].a = s * op; guides[i].material.opacity = s;
+        }
+        ring.material.opacity = hl * (1 - ph(6.0, 6.2)); ring.visible = ring.material.opacity > 0;
+        ring.scale.setScalar(1 + 0.18 * Math.sin(clock * 4));
+
+        setPost(meanLine, M, 7.6 * ph(0.5, 0.72)); lbMean.a = ph(0.66, 0.76);
+        var sg = ph(0.76, 0.92);
+        setBar(sdRuler, M, 6.9, 0, S * sg); lbS.a = sg;
+
+        // deviation of the chosen point, then of the others
+        for (i = 0; i < N; i++) {
+            var gr = i === PICK ? ph(2.15, 2.6) : ph(6.1 + i * 0.15, 6.2 + i * 0.15), gl = L[i] * gr;
+            setBar(dev[i], D[i] < 0 ? M - gl : M, rowY(i), 0, gl);
+            lbZ[i].a = i === PICK ? ph(5.02, 5.1) : ph(6.2 + i * 0.15, 6.26 + i * 0.15);
+        }
+        lbDev.a = ph(2.55, 2.7) * (1 - ph(5.0, 5.1));
+
+        // bench: carried deviation and the S ruler
+        var bench = 1 - ph(6.0, 6.25);
+        var c = ph(3.1, 3.55), r = ph(3.5, 3.95), snug = ph(4.1, 4.35);
+        setBar(car, lerp(M, BX, c), lerp(rowY(PICK), 0.06, c) + Math.sin(Math.PI * c) * 1.5, lerp(0, BZ, c), T >= 3.1 ? L[PICK] : 0);
+        car.material.opacity = bench;
+        setBar(r1, lerp(M, BX, r), lerp(6.9, 0.06, r) + Math.sin(Math.PI * r) * 1.2, lerp(0, lerp(BZ + 1, BZ + 0.4, snug), r), T >= 3.5 ? S : 0);
+        r1.material.opacity = bench;
+        setBar(r2, BX + S, 0.06, BZ + 0.4, S * ph(4.45, 4.7)); r2.material.opacity = 0.22 * bench;
+        setBar(r2part, BX + S, 0.07, BZ + 0.4, ph(4.7, 4.9)); r2part.material.opacity = bench;
+        lbOne.a = ph(4.3, 4.42) * bench; lbThird.a = ph(4.85, 4.95) * bench;
+        // the Z label travels from the bench back to its point
+        var fly = ph(5.1, 5.7);
+        lbZ[PICK].p.set(lerp(BX + 2, V[PICK], fly), lerp(1.5, rowY(PICK) + 0.47, fly) + Math.sin(Math.PI * fly) * 1.5, lerp(BZ + 0.4, 0, fly));
+
+        // S marks on the wall
+        var mg = ph(6.02, 6.2);
+        marks.forEach(function (mk, n) { setPost(mk.m, M + mk.z * S, 7.3 * mg); mk.m.material.opacity = 0.55; lbMark[n].a = mg * (1 - ph(7.0, 7.1)) * 0.9; });
+    
+        // number line: slide zero to the mean, then stretch one tick to one S
+        var sl = ph(7.15, 7.8), sq = ph(8.15, 8.85);
+        ticks.forEach(function (t) {
+            var x = M * sl + t.k * (1 + (S - 1) * sq);
+            var a = cl((x + 0.75) / 0.4) * cl((12.75 - x) / 0.4);
+            t.m.position.set(x, 0, 0); t.m.visible = a > 0; t.m.material.opacity = a;
+            t.m.scale.y = 1 + sq; t.lb.p.set(x, -0.5 - 0.12 * sq, 0); t.lb.a = a * (0.8 + 0.2 * sq);
+        });
+        lbAxX.a = 0.9 * (1 - sq); lbAxZ.a = sq;
+        lbUnit.a = ph(8.85, 8.97);
+    }
+
+    // ---------- camera ----------
+    var WALL = [[6, 5, 18.5], [6, 3.4, 0]], BENCH = [[11.5, 8, 23], [10.5, 2.2, 1]], WIDE = [[6, 4.6, 19.5], [6, 3.2, 0]];
+    var CAM = [WALL, WALL, WALL, BENCH, [[14, 7, 15], [14.5, 0.6, 1.6]], BENCH, WIDE, WIDE, WIDE];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25 && CAM[s] !== BENCH) { out.p.x -= 2.2; out.t.x -= 2.2; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ['fZ', 'fX', 'fM', 'fS'];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / DUR;
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(-50%,-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

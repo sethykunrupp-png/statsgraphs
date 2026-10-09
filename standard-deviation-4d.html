@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Standard Deviation in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #stats { font-size: 13.5px; line-height: 1.6; margin-top: 9px; padding-top: 9px;
+             border-top: 1px solid rgba(0,255,255,0.18); font-weight: 500; color: var(--amber); }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #stats { font-size: 12.5px; margin-top: 6px; padding-top: 6px; }
+        #hint { display: none; }
+    }
+</style>
+</head>
+<body>
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="stats"></div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- the sample ----------
+    var V = [1, 4, 5, 8, 8, 10];                 // six observations
+    var N = V.length, M = 6;                     // mean = 36 / 6
+    var D = V.map(function (v) { return v - M; });   // -5 -2 -1 +2 +2 +4
+    var L = D.map(Math.abs);                     // lengths
+    var SUM = 54, VAR = 9, SD = 3;               // 54 / 6 = 9, sqrt 9 = 3
+    var COL = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff'];
+    var rowY = function (i) { return 6 - i; };   // top row first
+
+    // layout anchors
+    var CX = 13;                                                  // where carried lines are listed
+    var SQ = [[13, 1], [23, 1], [25.5, 3.5], [23, 3.5], [25.5, 1], [18.5, 1]];   // floor corner of each square
+    var RX = 13, RZ = 8;                                          // corner of the 9 x 6 sum rectangle
+    var KX = 24.5, KZ = 9;                                        // corner of the final 3 x 3 square
+
+    var STEPS = [
+        { t: 'Six measurements', n: 'Each glowing dot is one sample, placed on the number line by its value. One row per sample, listed from top to bottom.',
+          s: 'x = 1, 4, 5, 8, 8, 10 <span class="dim">(n = 6)</span>' },
+        { t: 'Find the mean', n: 'Add the values and share the total equally. The mean is the balance point of the data, drawn as the cyan line.',
+          s: '(1 + 4 + 5 + 8 + 8 + 10) ÷ 6 = <b>6</b>' },
+        { t: 'Draw each deviation', n: 'One by one, measure the distance from each point to the mean. Left of the mean is negative, right is positive.',
+          s: 'x − mean: −5, −2, −1, +2, +2, +4 <span class="dim">(they always sum to 0)</span>' },
+        { t: 'Carry the distances to the right', n: 'Take each deviation line and set it down on the right, top to bottom. Only its length matters now.',
+          s: 'lengths: 5, 2, 1, 2, 2, 4' },
+        { t: 'Square each length', n: 'Each line lies down and sweeps out a square with that side. Squaring removes the minus signs and makes far points count much more.',
+          s: '5² = 25 · 2² = 4 · 1² = 1 · 2² = 4 · 2² = 4 · 4² = 16' },
+        { t: 'Add the squares together', n: 'Every unit tile from every square is poured into one block. Its area is the sum of squared deviations.',
+          s: '' },
+        { t: 'Divide by n', n: 'Share the block equally among the 6 samples. One share is the average squared deviation, called the variance.',
+          s: '54 ÷ 6 = <b>9</b> <span class="dim">(variance; use n − 1 when estimating from a sample)</span>' },
+        { t: 'Take the square root', n: 'The variance is an area. Rebuild it as one square and read its side: we are back to a length in the original units.',
+          s: '√9 = <b>3</b> = standard deviation' },
+        { t: 'Standard deviation, back on the data', n: 'Lay that side from the mean, both ways. It is the typical distance of a point from the mean: here 4 of the 6 points fall inside the band.',
+          s: 'mean ± SD = 6 ± 3 → from 3 to 9' }
+    ];
+    var NS = STEPS.length, DUR = 8;
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 45, 110);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 90; controls.minDistance = 4;
+
+    var grid = new THREE.GridHelper(60, 60, 0x0b4a5c, 0x0a2233);
+    grid.position.set(14, -0.03, 6); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color) { var m = new THREE.Mesh(barGeo, mat(color)); scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {           // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+
+    // number line
+    var axis = bar('#3c6d80'); axis.scale.y = 0.5; setBar(axis, -0.5, 0, 0, 12);
+    for (var x = 0; x <= 11; x++) {
+        var tk = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.04), mat('#3c6d80')); tk.position.set(x, 0, 0); scene.add(tk);
+    }
+    // faint row guides
+    var guides = [];
+    for (var i = 0; i < N; i++) { var g = bar('#12303d'); g.scale.y = 0.2; g.scale.z = 0.2; setBar(g, -0.5, rowY(i), -0.02, 12); guides.push(g); }
+
+    // points
+    var sph = new THREE.SphereGeometry(0.22, 24, 16), pts = [];
+    V.forEach(function (v, i) { var p = new THREE.Mesh(sph, mat(COL[i])); p.position.set(v, rowY(i), 0); scene.add(p); pts.push(p); });
+
+    // mean line, band
+    var meanLine = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1, 0.08), mat('#00ffff')); scene.add(meanLine);
+    var band = new THREE.Mesh(new THREE.PlaneGeometry(2 * SD, 7.3), mat('#00ffff', 0)); band.position.set(M, 3.65, -0.06); scene.add(band);
+
+    // deviation lines + carried copies
+    var dev = [], car = [];
+    for (i = 0; i < N; i++) { dev.push(bar(COL[i])); car.push(bar(COL[i])); }
+    var sdA = bar('#ffffff'), sdB = bar('#ffffff');
+    sdA.scale.y = sdB.scale.y = 1.5; sdA.scale.z = sdB.scale.z = 1.5;
+
+    // unit tiles
+    var tileGeo = new THREE.PlaneGeometry(0.9, 0.9); tileGeo.rotateX(-Math.PI / 2);
+    var tiles = [], amber = new THREE.Color('#ffb454');
+    for (i = 0; i < N; i++) for (var b = 0; b < L[i]; b++) for (var a = 0; a < L[i]; a++) {
+        var k = tiles.length, m = new THREE.Mesh(tileGeo, mat(COL[i], 0));
+        scene.add(m);
+        tiles.push({ m: m, i: i, a: a, b: b, k: k, c0: new THREE.Color(COL[i]), row: Math.floor(k / 9), col: k % 9 });
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0 }; labels.push(o); return o;
+    }
+    var fmt = function (d) { return (d > 0 ? '+' : '−') + Math.abs(d); };
+    for (x = 0; x <= 11; x++) label(String(x), x, -0.5, 0, 'tick').a = 0.8;
+    var lbVal = V.map(function (v, i) { return label(String(v), v + (v < M ? -0.55 : 0.55), rowY(i), 0); });
+    var lbMean = label('mean = 6', M, 7.95, 0, 'key');
+    var lbDev = D.map(function (d, i) { return label(fmt(d), (V[i] + M) / 2, rowY(i) + 0.36, 0); });
+    var lbCar = L.map(function (l, i) { return label(String(l), CX + l + 0.55, rowY(i), 0); });
+    var lbSq = L.map(function (l, i) { return label(l + '² = ' + l * l, SQ[i][0] + l / 2, 0.5, SQ[i][1] + l / 2, 'eq'); });
+    var lbSum = label('sum = 54', RX + 4.5, 0.7, RZ + 3, 'eq');
+    var lbShare = label('one share = 9', RX + 4.5, 0.7, RZ + 8, 'eq');
+    var lbRoot = label('side = √9 = 3', KX + 1.5, 0.6, KZ + 4.2, 'key');
+    var lbSdA = label('+1 SD', M + 1.5, 7.3, 0, 'key'), lbSdB = label('−1 SD', M - 1.5, 7.3, 0, 'key');
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function update() {
+        var i, t;
+        // points and their values
+        for (i = 0; i < N; i++) {
+            var s = ph(0.05 + i * 0.12, 0.22 + i * 0.12);
+            pts[i].scale.setScalar(Math.max(s, 0.001)); pts[i].visible = s > 0; lbVal[i].a = s;
+            guides[i].material.opacity = s;
+        }
+        // mean
+        var mg = ph(1.1, 1.55);
+        meanLine.visible = mg > 0; meanLine.scale.y = Math.max(7.5 * mg, 0.001); meanLine.position.set(M, 3.75 * mg - 0.1, 0);
+        lbMean.a = ph(1.45, 1.6);
+
+        // deviations, carried lines, squares
+        for (i = 0; i < N; i++) {
+            var o = i * 0.15, y = rowY(i), len = L[i];
+            var grow = ph(2.05 + o, 2.19 + o), c = ph(3.05 + o, 3.19 + o);
+            var drop = ph(4.05 + o, 4.12 + o), sweep = ph(4.12 + o, 4.19 + o);
+            var gl = len * grow;
+            setBar(dev[i], D[i] < 0 ? V[i] : V[i] - gl, y, 0, gl);
+            dev[i].material.opacity = 1 - 0.7 * c;
+            lbDev[i].a = grow * (1 - 0.5 * c);
+
+            var x0 = Math.min(V[i], M), sx = SQ[i][0], sz = SQ[i][1];
+            var px = lerp(lerp(x0, CX, c), sx, drop), py = lerp(y, 0.06, drop), pz = lerp(0, sz, drop);
+            setBar(car[i], px, py, pz, T >= 3.05 + o ? len : 0);
+            car[i].material.opacity = 1 - ph(5.0, 5.15);
+            lbCar[i].a = c * (1 - drop);
+            lbSq[i].a = sweep * (1 - ph(5.08, 5.2));
+        }
+
+        // tiles
+        var q = ph(6.1, 6.45), fade = ph(6.55, 6.9), gone = ph(7.0, 7.2), root = ph(7.1, 7.6), landed = 0;
+        for (var n = 0; n < tiles.length; n++) {
+            t = tiles[n]; i = t.i;
+            var oo = i * 0.15, g = ph(4.12 + oo, 4.19 + oo);
+            var mv = ph(5.1 + t.k / 54 * 0.5, 5.4 + t.k / 54 * 0.5);
+            if (mv >= 1) landed++;
+            var x1 = SQ[i][0] + t.a + 0.5, z1 = SQ[i][1] + (t.b + 0.5) * g;
+            var x2 = RX + t.col + 0.5, z2 = RZ + t.row + 0.5 + t.row * 0.5 * q;
+            var X = lerp(x1, x2, mv), Z = lerp(z1, z2, mv), Y = 0.03 + Math.sin(Math.PI * mv) * 1.6;
+            var op = g > 0 ? 0.88 : 0;
+            if (t.row === 5) {
+                var cc = t.col;
+                X = lerp(X, KX + (cc % 3) + 0.5, root); Z = lerp(Z, KZ + Math.floor(cc / 3) + 0.5, root);
+                Y += Math.sin(Math.PI * root) * 1.2;
+                t.m.material.color.copy(t.c0).lerp(amber, fade);
+            } else {
+                op *= (1 - 0.85 * fade) * (1 - 0.6 * gone);
+            }
+            t.m.visible = op > 0; t.m.material.opacity = op;
+            t.m.scale.z = Math.max(g, 0.001);
+            t.m.position.set(X, Y, Z);
+        }
+        lbSum.a = ph(5.86, 5.95) * (1 - ph(6.08, 6.2));
+        lbShare.a = ph(6.85, 6.95) * (1 - ph(7.05, 7.15));
+        if (step === 5) $('stats').innerHTML = '25 + 4 + 1 + 4 + 4 + 16 → <b>' + landed + '</b> of 54 unit squares';
+
+        // standard deviation line
+        var a7 = ph(7.65, 7.9), bk = ph(8.1, 8.6), mir = ph(8.6, 8.8);
+        setBar(sdA, lerp(KX, M, bk), lerp(0.08, 6.9, bk) + Math.sin(Math.PI * bk) * 2, lerp(KZ + 3.25, 0, bk), SD * a7);
+        setBar(sdB, M - SD * mir, 6.9, 0, SD * mir);
+        lbRoot.a = ph(7.8, 7.9) * (1 - ph(8.08, 8.2));
+        band.material.opacity = 0.13 * ph(8.6, 8.9); band.visible = band.material.opacity > 0;
+        lbSdA.a = lbSdB.a = ph(8.75, 8.9);
+        for (i = 0; i < N; i++) if (T > 8.6) dev[i].material.opacity = lerp(0.3, 1, ph(8.6, 8.9));
+    }
+
+    // ---------- camera ----------
+    var CAM = [
+        [[5.5, 5, 17], [5.5, 3.3, 0]], [[5.5, 5, 17], [5.5, 3.3, 0]], [[5.5, 5, 17], [5.5, 3.3, 0]],
+        [[10, 6.5, 24], [10, 3.2, 0]],
+        [[18, 13, 21], [19.5, 1.2, 3]],
+        [[16, 16, 28], [18, 0, 8]],
+        [[16, 16, 30], [18, 0, 10]],
+        [[22, 13, 27], [22, 0, 11]],
+        [[8, 6, 19], [6.5, 3.6, 0]]
+    ];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var k = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        return { p: tg.clone().add(p.sub(tg).multiplyScalar(k)), t: tg };
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s, keepPause) {
+        step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step);
+        if (!keepPause) setPlay(true);
+    }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now;
+        if (playing) {
+            u += dt / DUR;
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(-50%,-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
