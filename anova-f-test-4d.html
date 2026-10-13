@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>F Test for Three Groups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl .hc { opacity: 0; }
+    #tbl tr.tot td { border-top: 1px solid rgba(0,255,255,0.3); color: var(--amber); font-weight: 600; }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="F equals mean square between divided by mean square within">
+            <span class="p" id="fF">F</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fB">MS<sub style="font-size:.6em">between</sub></span></span><span class="bot"><span class="p" id="fW">MS<sub style="font-size:.6em">within</sub></span></span></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- one-way ANOVA: three groups of five ----------
+    var G = [[4, 5, 6, 7, 8], [6, 7, 8, 9, 10], [8, 9, 11, 12, 10]], NAMES = ['A', 'B', 'C'], K = 3, NG = 5, NT = 15;
+    var GC = ['#ff5c8a', '#5cff9d', '#b388ff'], GX = [-3.4, 0, 3.4], OFF = [-0.8, -0.4, 0, 0.4, 0.8];
+    var Y = function (v) { return (v - 2) * 0.6; }, FZ = 5.5, FX = function (f) { return -3 + f * 0.95; }, FH = 4.2;
+    var fpdf = function (x) { return Math.pow(1 + x / 6, -7); }, fp = function (F) { return Math.pow(1 + F / 6, -6); }, FCRIT = 6 * (Math.pow(0.05, -1 / 6) - 1);   // F(2, 12)
+    var STEPS = [
+        {
+                "t": "Three groups",
+                "n": "Fifteen students taught by three methods, five per method. Each dot is one test score. Do the methods lead to different average scores?",
+                "s": "k = 3 groups · n = 5 each",
+                "on": []
+        },
+        {
+                "t": "The group means",
+                "n": "Draw a line at the mean of each group: 6, 8 and 10. They differ, but scores also vary a lot inside each group.",
+                "s": "means: 6, 8, 10",
+                "on": []
+        },
+        {
+                "t": "The grand mean",
+                "n": "The mean of all 15 scores is 8, the white line. If the method made no difference, every group mean would sit near this line.",
+                "s": "grand mean = 8",
+                "on": []
+        },
+        {
+                "t": "The question",
+                "n": "H₀ says the three population means are equal and the gaps are just noise. The F test compares the gaps between groups with the noise inside them.",
+                "s": "H₀: μA = μB = μC",
+                "on": []
+        },
+        {
+                "t": "Between-group variation",
+                "n": "Measure each group mean against the grand mean and square it. Each square counts 5 times, once per student. This is the variation the methods might explain.",
+                "s": "SSB = 5 × (2² + 0² + 2²) = <b>40</b>",
+                "on": [
+                        "fB"
+                ]
+        },
+        {
+                "t": "Within-group variation",
+                "n": "Now measure each score against its own group mean and square it. This is the noise: students taught the same way still differ.",
+                "s": "SSW = 10 + 10 + 10 = <b>30</b>",
+                "on": [
+                        "fW"
+                ]
+        },
+        {
+                "t": "Total = between + within",
+                "n": "The total variation around the grand mean splits exactly into the two parts. The ANOVA table starts with these sums of squares.",
+                "s": "70 = 40 + 30",
+                "on": []
+        },
+        {
+                "t": "Average them: mean squares",
+                "n": "Divide each sum by its degrees of freedom: k − 1 = 2 for between, N − k = 12 for within. The results are mean squares, comparable variances.",
+                "s": "MSB = 40 ÷ 2 = <b>20</b> · MSW = 30 ÷ 12 = <b>2.5</b>",
+                "on": [
+                        "fB",
+                        "fW"
+                ]
+        },
+        {
+                "t": "F = MSB ÷ MSW",
+                "n": "Stack copies of the within block until they reach the between block. Eight copies fit. If H₀ were true, F would be around 1.",
+                "s": "F = 20 ÷ 2.5 = <b>8</b>",
+                "on": [
+                        "fF",
+                        "fB",
+                        "fW"
+                ]
+        },
+        {
+                "t": "Is 8 large? The F distribution",
+                "n": "This curve shows the F values chance alone would produce with 2 and 12 degrees of freedom. Beyond 3.89 lies only 5% of it. Our F of 8 is far out: p = 0.006.",
+                "s": "p = 0.0062 · reject H₀",
+                "on": [
+                        "fF"
+                ]
+        },
+        {
+                "t": "Move the groups apart or together",
+                "n": "Push the group means together and F collapses toward 1. Pull them apart and F soars. The noise inside the groups stays the same.",
+                "s": "",
+                "on": [
+                        "fB"
+                ]
+        },
+        {
+                "t": "More noise inside the groups",
+                "n": "Keep the means but double the scatter inside each group. MSW grows four times, F drops to 2 and the same gaps are no longer significant.",
+                "s": "",
+                "on": [
+                        "fW"
+                ]
+        },
+        {
+                "t": "What F does and does not say",
+                "n": "A significant F says at least one group mean differs, not which one. Follow up with a post-hoc test such as Tukey. ANOVA assumes independent observations, roughly normal groups and similar spread in each group.",
+                "s": "next: Tukey post-hoc comparisons",
+                "on": [
+                        "fF",
+                        "fB",
+                        "fW"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return Math.abs(v - Math.round(v)) < 0.005 ? String(Math.round(v)) : v.toFixed(2); };
+
+    // ----- table card: data first, then the ANOVA table -----
+    var tblKind = '', trs = [], cells = [];
+    function buildTable(kind) {
+        if (kind === tblKind) return; tblKind = kind;
+        if (kind === 'data') {
+            $('tbl').innerHTML = '<div class="cap">Test scores by teaching method</div><table><thead><tr><th></th><th>A</th><th>B</th><th>C</th></tr></thead><tbody>' +
+                [0, 1, 2, 3, 4].map(function (r) { return '<tr><td>' + (r + 1) + '</td><td></td><td></td><td></td></tr>'; }).join('') + '<tr class="tot"><td>mean</td><td></td><td></td><td></td></tr></tbody></table>';
+        } else {
+            $('tbl').innerHTML = '<div class="cap">ANOVA table</div><table><thead><tr><th>source</th><th>SS</th><th>df</th><th>MS</th><th>F</th><th>p</th></tr></thead><tbody>' +
+                '<tr><td>between groups</td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>within groups</td><td></td><td></td><td></td><td></td><td></td></tr><tr class="tot"><td>total</td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>';
+        }
+        trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); cells = trs.map(function (t) { return [].slice.call(t.children); });
+        cells.head = [].slice.call($('tbl').querySelectorAll('thead th'));
+    }
+    function sc(c, t, hide) { if (c.textContent !== t) c.textContent = t; var k = hide ? 'hc' : ''; if (c.className !== k) c.className = k; }
+
+    // ----- scene -----
+    var axis = post('#3c6d80', 1); setPost(axis, -5.3, 0, Y(14.5), 0);
+    var tickGeoH = new THREE.BoxGeometry(0.3, 0.04, 0.04);
+    for (var v = 2; v <= 14; v += 2) { var t = new THREE.Mesh(tickGeoH, mat('#5d9ab3')); t.position.set(-5.3, Y(v), 0); scene.add(t); label(String(v), -5.85, Y(v), 0, 'tick').a = 0.85; }
+    label('score', -5.3, Y(15.3), 0, 'key').a = 1;
+    var floor = bar('#3c6d80', 0.5); setBar(floor, -5.3, 0, 0, 10.6);
+    var lbG = GX.map(function (x, g) { var l = label('method ' + NAMES[g], x, -0.5, 0, 'key'); l.el.style.color = GC[g]; return l; });
+    var sph = new THREE.SphereGeometry(0.2, 18, 12), dots = [], wPost = [], wSq = [];
+    var sqGeo = new THREE.PlaneGeometry(1, 1); sqGeo.rotateY(Math.PI / 2);
+    function sq(color, op) { var m = new THREE.Mesh(sqGeo, mat(color, op)); m.add(new THREE.LineSegments(new THREE.EdgesGeometry(sqGeo), new THREE.LineBasicMaterial({ color: color }))); scene.add(m); m.visible = false; return m; }
+    for (var g = 0; g < K; g++) for (var i = 0; i < NG; i++) { var d = new THREE.Mesh(sph, mat(GC[g])); scene.add(d); dots.push(d); wPost.push(post(GC[g], 1)); wSq.push(sq(GC[g], 0.3)); }
+    var gLine = GC.map(function (c) { return bar(c, 1.4); }), grand = bar('#ffffff', 1.0), bPost = GC.map(function (c) { return post(c, 2); }), bSq = GC.map(function (c) { return sq(c, 0.45); });
+    var lbGM = GC.map(function (c) { var l = label('', 0, 0, 0, ''); l.el.style.color = c; l.left = true; return l; }), lbGrand = label('', 5.3, 0, 0, 'key', true), lbX5 = GC.map(function () { return label('× 5', 0, 0, 0, 'eq'); });
+    var lbBig = label('', 0, -1.25, 0, 'key'); lbBig.el.style.fontSize = '18px';
+    // mean-square meters
+    var MX = 6.6, MS_H = 0.15, mB = box('#ffb454', 0.85, true), mW = box('#4dd2ff', 0.85, true), copies = []; for (i = 0; i < 12; i++) copies.push(box('#4dd2ff', 0.6, true));
+    var lbMB = label('', MX + 0.5, 0, 0, 'eq'), lbMW = label('', MX + 2.1, 0, 0, ''), lbF = label('', MX + 1.3, 0, 0, 'key'); lbMW.el.style.color = '#7fe0ff';
+    // F distribution on the floor in front
+    var NP = 121, fcur = polyline(NP, '#00ffff'), ffill = strip(NP, '#00ffff', 0), ftail = strip(61, '#ffb454', 0), faxis = bar('#3c6d80', 0.5), fcrit = post('#ffffff', 1.2), fmark = post('#ffb454', 1.8);
+    for (i = 0; i < NP; i++) { var fx = 10.5 * i / (NP - 1); fcur.set(i, FX(fx), fpdf(fx) * FH, FZ); ffill.set(i, FX(fx), fpdf(fx) * FH, FZ - 0.02, FX(fx), 0, FZ - 0.02); }
+    var lbFt = []; for (i = 0; i <= 10; i += 2) lbFt.push(label(String(i), FX(i), 0.02, FZ + 0.55, 'tick'));
+    var lbFax = label('F', FX(10.9), 0.02, FZ, 'key'), lbFc = label('5% cut-off 3.89', FX(FCRIT), 1.7, FZ, ''), lbFm = label('', 0, 0, FZ, 'eq'), lbP = label('', FX(5), 0.05, FZ + 1.5, 'key'); lbP.el.style.fontSize = '17px';
+
+    function update() {
+        var i, g;
+        // ----- live data: spread between groups (step 11) and within groups (step 12) -----
+        var sb = lerp(lerp(lerp(1, 0.25, ph(10.15, 10.45)), 1.6, ph(10.5, 10.85)), 1, ph(10.9, 10.98));
+        var sw = lerp(lerp(1, 2, ph(11.15, 11.6)), 1, ph(12.02, 12.15));
+        var raw = G, m0 = [6, 8, 10], gm0 = 8, data = [], gm = 0, means = [];
+        for (g = 0; g < K; g++) { var mg = gm0 + sb * (m0[g] - gm0); means.push(mg); data.push(raw[g].map(function (x) { return mg + sw * (x - m0[g]); })); gm += mg / K; }
+        var ssb = 0, ssw = 0; for (g = 0; g < K; g++) { ssb += NG * (means[g] - gm) * (means[g] - gm); for (i = 0; i < NG; i++) ssw += (data[g][i] - means[g]) * (data[g][i] - means[g]); }
+        var msb = ssb / 2, msw = ssw / 12, F = msb / msw, p = fp(F);
+
+        // ----- dots and lines -----
+        var k = 0;
+        for (g = 0; g < K; g++) for (i = 0; i < NG; i++, k++) {
+            var a = ph(0.05 + k * 0.045, 0.2 + k * 0.045), x = GX[g] + OFF[i], yv = Y(data[g][i]);
+            dots[k].position.set(x, yv, 0); dots[k].scale.setScalar(Math.max(a, 0.001)); dots[k].visible = a > 0;
+            var wa = ph(5.1 + k * 0.02, 5.3 + k * 0.02) * (1 - ph(6.0, 6.1)) + ph(11.1, 11.2) * (1 - ph(12.0, 12.1)), wsa = ph(5.4, 5.7) * (1 - ph(6.0, 6.1)) + ph(11.1, 11.2) * (1 - ph(12.0, 12.1));
+            var dw = Math.abs(yv - Y(means[g]));
+            setPost(wPost[k], x, 0.02, dw * cl(wa), Math.min(yv, Y(means[g])));
+            wSq[k].visible = wsa > 0.01 && dw > 0.01; wSq[k].scale.set(1, Math.max(dw, 0.001), Math.max(dw * cl(wsa), 0.001)); wSq[k].position.set(x, (yv + Y(means[g])) / 2, dw * cl(wsa) / 2);
+        }
+        lbG.forEach(function (l) { l.a = ph(0.3, 0.5) * (1 - ph(9.0, 9.1) * (1 - ph(12.0, 12.1))); });
+        var la = ph(1.1, 1.45), ga = ph(2.1, 2.4);
+        for (g = 0; g < K; g++) {
+            setBar(gLine[g], GX[g] - 1.15, Y(means[g]), 0, 2.3 * la); lbGM[g].p.set(GX[g] + 1.2, Y(means[g]) + 0.3, 0); lbGM[g].a = la * (1 - ph(4.0, 4.1)); setText(lbGM[g], 'mean ' + f1(means[g]));
+            var ba = ph(4.1 + g * 0.1, 4.35 + g * 0.1) * (1 - ph(5.0, 5.1)) + ph(10.1, 10.2) * (1 - ph(11.0, 11.1)), db = Math.abs(Y(means[g]) - Y(gm)), bx = GX[g] + 1.45;
+            setPost(bPost[g], bx, 0.02, db * cl(ba), Math.min(Y(means[g]), Y(gm)));
+            bSq[g].visible = ba > 0.01 && db > 0.01; bSq[g].scale.set(1, Math.max(db, 0.001), Math.max(db * cl(ba), 0.001)); bSq[g].position.set(bx, (Y(means[g]) + Y(gm)) / 2, db * cl(ba) / 2);
+            lbX5[g].p.set(bx + 0.4, Math.max(Y(means[g]), Y(gm)) + 0.35, 0.3); lbX5[g].a = ph(4.4, 4.5) * (1 - ph(5.0, 5.1)) * (db > 0.05 ? 1 : 0);
+        }
+        setBar(grand, -5.2, Y(gm), 0.03, 10.4 * ga); lbGrand.p.y = Y(gm); lbGrand.a = ga; setText(lbGrand, 'grand mean ' + f1(gm));
+        var bigT = { 3: 'H₀: μA = μB = μC ?', 4: 'between: SSB = 5 × (4 + 0 + 4) = 40', 5: 'within: SSW = 10 + 10 + 10 = 30', 6: 'total: 40 + 30 = 70' }[step] || '';
+        lbBig.a = bigT ? ph(step + 0.3, step + 0.45) : 0; setText(lbBig, bigT);
+
+        // ----- mean squares and F -----
+        var ma = ph(7.1, 7.4) * (1 - ph(9.0, 9.1)) + ph(10.1, 10.2) * (1 - ph(12.0, 12.1)) * 0 + (step === 12 ? 0 : 0);
+        var hB = msb * MS_H, hW = msw * MS_H;
+        mB.visible = mW.visible = ma > 0; mB.scale.set(1, Math.max(hB * ma, 0.01), 1); mB.position.set(MX, 0, 0.5); mW.scale.set(1, Math.max(hW * ma, 0.01), 1); mW.position.set(MX + 1.6, 0, 0.5);
+        lbMB.p.y = hB * ma + 0.35; lbMB.a = ma; setText(lbMB, 'MSB = ' + f1(ssb) + ' ÷ 2 = ' + f1(msb));
+        lbMW.p.y = hW * ma + 0.35; lbMW.a = ma; setText(lbMW, 'MSW = ' + f1(ssw) + ' ÷ 12 = ' + f1(msw));
+        var ca = ph(8.1, 8.2) * (1 - ph(9.0, 9.1)), nc = F * ph(8.15, 8.8);
+        for (i = 0; i < 12; i++) { var fill = cl(nc - i); copies[i].visible = ca > 0 && fill > 0; copies[i].scale.set(0.9, Math.max(hW * fill, 0.01), 0.9); copies[i].position.set(MX + 0.05 - 1.3, i * hW, 0.55); }
+        lbF.p.y = hB + 0.95; lbF.a = ph(8.75, 8.85) * (1 - ph(9.0, 9.1)); setText(lbF, 'MSB holds MSW ' + F.toFixed(1) + ' times → F = ' + F.toFixed(2));
+
+        // ----- the F distribution -----
+        var fa = ph(9.1, 9.5) * (1 - ph(12.0, 12.1)), fd = Math.floor(NP * fa); fcur.m.visible = fa > 0.01;
+        fcur.done(fd); ffill.done(fd); ffill.m.material.opacity = 0.12 * fa; setBar(faxis, FX(0), 0, FZ, 10.8 * cl(fa * 2)); lbFt.forEach(function (l) { l.a = 0.85 * fa; }); lbFax.a = fa;
+        var fc = ph(9.55, 9.75) * (1 - ph(12.0, 12.1)); setPost(fcrit, FX(FCRIT), FZ, 1.4 * fc); lbFc.a = fc * 0.9;
+        var Fv = Math.min(F, 10.4), mk = ph(9.75, 9.95) * (1 - ph(12.0, 12.1)); setPost(fmark, FX(Fv), FZ, (fpdf(Fv) * FH + 1.0) * mk); lbFm.p.set(FX(Fv), fpdf(Fv) * FH + 1.35, FZ); lbFm.a = mk; setText(lbFm, 'our F = ' + F.toFixed(2));
+        var ta = ph(9.9, 10.1) * (1 - ph(12.0, 12.1)); ftail.m.visible = ta > 0; ftail.m.material.opacity = 0.65 * ta;
+        for (i = 0; i < 61; i++) { var xv = Fv + (10.5 - Fv) * i / 60; ftail.set(i, FX(xv), fpdf(xv) * FH, FZ + 0.03, FX(xv), 0, FZ + 0.03); } ftail.done();
+        var rej = F > FCRIT; lbP.a = ph(10.0, 10.1) * (1 - ph(12.0, 12.1)); setText(lbP, 'p = ' + p.toFixed(4) + (rej ? ' → at least one mean differs' : ' → no evidence of a difference')); lbP.el.style.color = rej ? '#ffb454' : '#00ffff';
+
+        // ----- table -----
+        buildTable(step <= 5 ? 'data' : 'anova');
+        if (tblKind === 'data') {
+            for (i = 0; i < NG; i++) for (g = 0; g < K; g++) sc(cells[i][g + 1], f1(data[g][i]), false);
+            for (g = 0; g < K; g++) sc(cells[NG][g + 1], f1(means[g]), step < 1);
+        } else {
+            var lv = step === 6 ? 1 : step === 7 ? 3 : step === 8 ? 4 : 5;
+            var R = [[f1(ssb), '2', f1(msb), F.toFixed(2), p.toFixed(4)], [f1(ssw), '12', f1(msw), '', ''], [f1(ssb + ssw), '14', '', '', '']];
+            for (var r = 0; r < 3; r++) for (var c = 0; c < 5; c++) sc(cells[r][c + 1], R[r][c], c + 1 > lv);
+            for (c = 0; c < 6; c++) { var kk = c > lv ? 'hc' : ''; if (cells.head[c].className !== kk) cells.head[c].className = kk; }
+        }
+        if (step >= 10 && step <= 11) setStats('F = <b>' + F.toFixed(2) + '</b> · p = <b>' + p.toFixed(4) + '</b>' + (rej ? ' · significant' : ' · not significant'));
+    }
+
+    // ---------- camera ----------
+    var V = [[0.8, 4.6, 16], [0.8, 3.6, 0.5], -2.4], M = [[3.5, 5, 17], [3.2, 2.6, 0.5], -2.4], F = [[1.8, 7.8, 21.5], [1.6, 2.4, 3.2], -2.4];
+    var CAM = [V, V, V, V, V, V, V, M, M, F, F, F, V];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fF", "fB", "fW"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

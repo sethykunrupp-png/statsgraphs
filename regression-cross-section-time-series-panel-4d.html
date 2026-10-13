@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Regression for Cross-Section, Time Series and Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl td:first-child { white-space: normal; text-align: left; } #tbl th:first-child { text-align: left; }
+    @media (min-width: 761px) { #tbl { width: min(400px, calc(100% - 32px)); font-size: 11.5px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="y i t equals a i plus beta x i t plus e i t">
+            <span class="p" id="fY">y<sub style="font-size:.55em">it</sub></span><span class="sym">=</span><span class="p" id="fA">a<sub style="font-size:.55em">i</sub></span> <span class="sym">+</span> <span class="p" id="fB">β</span><span class="p" id="fX">x<sub style="font-size:.55em">it</sub></span> <span class="sym">+</span> <span class="p" id="fE">e<sub style="font-size:.55em">it</sub></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- regression models for cross-section, time series and panel data ----------
+    var XA = [[12.3, 6.5, 10.5, 13.2, 9.1, 11.1, 13.2, 9.2, 12.2, 13.8, 11.7, 13.4], [9.4, 9.0, 10.3, 7.4, 11.3, 9.7, 7.7, 11.3, 10.6, 9.1, 8.7, 10.2], [5.8, 6.5, 10.1, 8.7, 10.1, 8.6, 10.8, 6.7, 10.1, 9.8, 10.1, 10.8], [6.5, 7.1, 10.0, 9.0, 8.5, 4.9, 9.9, 7.8, 8.4, 4.4, 7.5, 3.5], [6.8, 5.6, 6.0, 4.1, 6.1, 5.4, 3.0, 6.0, 5.2, 3.3, 7.1, 3.5], [3.0, 1.3, 1.5, 4.8, 7.8, 3.2, 3.8, 3.7, 5.7, 7.8, 4.8, 3.9]];
+    var YA = [[26.2, 20.6, 26.8, 36.9, 20.9, 29.0, 31.4, 35.4, 31.5, 32.0, 30.5, 40.5], [27.0, 31.8, 33.1, 36.6, 29.9, 33.1, 31.9, 41.5, 32.2, 36.0, 36.5, 45.4], [25.5, 35.8, 43.2, 47.2, 37.5, 37.8, 44.7, 43.5, 41.5, 39.4, 44.6, 52.2], [35.1, 39.6, 50.0, 52.1, 40.6, 43.1, 48.8, 50.4, 43.1, 41.0, 49.1, 47.7], [44.6, 45.2, 49.1, 49.7, 46.1, 46.3, 47.7, 57.3, 46.2, 47.6, 53.7, 54.2], [45.9, 48.2, 45.8, 58.5, 56.3, 50.0, 52.3, 61.3, 53.6, 64.1, 59.6, 62.7]];
+    var NF = 6, NQ = 12, TSF = 1, TSF2 = 3, CSQ = 11, FN = ['A', 'B', 'C', 'D', 'E', 'F'];
+    var QN = function (t) { return 'Q' + (t % 4 + 1) + ' ' + (2022 + Math.floor(t / 4)); }, QS = function (t) { return 'Q' + (t % 4 + 1) + '·' + String(22 + Math.floor(t / 4)); };
+    var COL = ['#4dd2ff', '#ff5c8a', '#5cff9d', '#ffb454', '#b388ff', '#ffe066'];
+    var MISS = [[0, 0], [0, 1], [3, 7], [5, 10], [2, 4]];
+    var STEPS = [
+        {
+                "t": "One question, three kinds of data",
+                "n": "Does advertising raise sales? We have 6 firms over 12 quarters. A snapshot, one firm's history, or the whole panel each lead to a different regression model, and the answers differ.",
+                "s": "sales y, advertising x",
+                "on": [
+                        "fY",
+                        "fB",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Cross-section regression",
+                "n": "Take the 6 firms in Q4 2024 and run ordinary least squares: one line through 6 points. The slope comes out negative.",
+                "s": "yᵢ = β₀ + β₁xᵢ + uᵢ",
+                "on": [
+                        "fY",
+                        "fB",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Residuals and robust errors",
+                "n": "Each stick is a residual. In a cross-section, big units often scatter more than small ones (heteroskedasticity). Robust standard errors protect the test against that.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "The hidden problem: omitted variables",
+                "n": "Behind each point is a whole firm. Large firms sell more and advertise less, and size is not in the model. So the cross-section slope mixes the effect of advertising with the effect of size.",
+                "s": "",
+                "on": [
+                        "fA",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Time series regression: one firm over time",
+                "n": "Now follow firm B for 12 quarters. Order matters, and trend and season move sales on their own.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Add trend and season as controls",
+                "n": "Regress sales on advertising plus a time trend and quarter dummies. The fitted path tracks the zigzag. Now the advertising effect is measured with trend and season held fixed.",
+                "s": "yₜ = β₀ + β₁xₜ + γt + season + uₜ",
+                "on": [
+                        "fB",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Check for autocorrelation",
+                "n": "Plot the residuals in time order. If each one tends to follow the last, standard errors are too small. The Durbin-Watson statistic tests this: near 2 means no first-order autocorrelation. Newey-West standard errors are the usual fix.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Dynamic models: add the past",
+                "n": "Last year's same quarter is a strong predictor, so put it in the model. A lagged dependent variable soaks up persistence the other x values miss.",
+                "s": "yₜ = β₀ + ρyₜ₋₄ + β₁xₜ + uₜ",
+                "on": [
+                        "fY",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Non-stationary series: difference them",
+                "n": "Series that trend can produce spurious regressions. Differencing turns levels into changes: here the change from the same quarter last year. Test for unit roots (ADF) before regressing levels on levels.",
+                "s": "Δ₄yₜ = yₜ − yₜ₋₄",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Panel: pooled OLS",
+                "n": "Throw all 72 firm-quarters into one regression and ignore who is who. The slope is negative again, because pooling still mixes firms of different sizes.",
+                "s": "yᵢₜ = β₀ + β₁xᵢₜ + uᵢₜ",
+                "on": [
+                        "fY",
+                        "fB",
+                        "fX"
+                ]
+        },
+        {
+                "t": "The firm effect aᵢ",
+                "n": "Split the error into a fixed part for each firm, aᵢ, and the rest. Firm averages (big dots) fall along a downward line: aᵢ is tied to x. That is the bias in pooled OLS.",
+                "s": "uᵢₜ = aᵢ + eᵢₜ",
+                "on": [
+                        "fA",
+                        "fE"
+                ]
+        },
+        {
+                "t": "Fixed effects: an intercept per firm",
+                "n": "Give every firm its own intercept (firm dummies, LSDV). The slope is now estimated only from changes within each firm, and it turns positive.",
+                "s": "yᵢₜ = aᵢ + βxᵢₜ + eᵢₜ",
+                "on": [
+                        "fA",
+                        "fB",
+                        "fX"
+                ]
+        },
+        {
+                "t": "The within transformation",
+                "n": "Fixed effects is the same as subtracting each firm's own averages from its x and y. All the clouds slide on top of each other and one line fits them all.",
+                "s": "(yᵢₜ − ȳᵢ) = β(xᵢₜ − x̄ᵢ) + (eᵢₜ − ēᵢ)",
+                "on": [
+                        "fA",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Two-way fixed effects",
+                "n": "Also subtract what is common to each quarter: season and shocks that hit every firm. Firm effects and time effects are both removed.",
+                "s": "yᵢₜ = aᵢ + λₜ + βxᵢₜ + eᵢₜ",
+                "on": [
+                        "fA",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Random effects",
+                "n": "Random effects treats aᵢ as random and assumes it is unrelated to x. It blends the between slope (white) and the within slope (cyan). Its estimate lies between them, weighted by θ.",
+                "s": "",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "Fixed or random? The Hausman test",
+                "n": "If aᵢ really is unrelated to x, fixed and random effects agree. A large gap means aᵢ is tied to x and random effects is biased. Here the gap is huge, so use fixed effects.",
+                "s": "",
+                "on": [
+                        "fA",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Clustered standard errors",
+                "n": "The 12 quarters of one firm are not 12 independent pieces of information. Cluster the standard errors by firm so the test is not over-confident.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "First differences: another way to remove aᵢ",
+                "n": "Subtract last quarter from this quarter for every firm. Anything fixed for a firm cancels out. Regress changes in sales on changes in advertising.",
+                "s": "Δyᵢₜ = βΔxᵢₜ + Δeᵢₜ",
+                "on": [
+                        "fB"
+                ]
+        },
+        {
+                "t": "Matching model to data",
+                "n": "Cross-section: OLS with robust errors, but beware omitted variables. Time series: control trend and season, check autocorrelation, difference if non-stationary. Panel: fixed effects (or random if Hausman allows), cluster by unit.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fA",
+                        "fB",
+                        "fX",
+                        "fE"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    var X = function (t) { return 0.4 + 0.75 * t; }, Z = function (i) { return -(0.5 + 1.2 * i); }, H = function (y) { return y * 0.09; };
+    var SX = function (a) { return 0.3 + a * 0.62; }, SZ = 2.2;
+    grid.position.set(4.5, -0.03, -3.5);
+
+    // ---------- the numbers ----------
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sdv(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / (a.length - 1)); }
+    function corr(a, b) { var ma = mean(a), mb = mean(b), s = 0, sa = 0, sb = 0; for (var i = 0; i < a.length; i++) { s += (a[i] - ma) * (b[i] - mb); sa += (a[i] - ma) * (a[i] - ma); sb += (b[i] - mb) * (b[i] - mb); } return s / Math.sqrt(sa * sb); }
+    function solve(A, v) { var n = v.length, M = A.map(function (r, i) { return r.concat([v[i]]); });
+        for (var c = 0; c < n; c++) { var p = c; for (var r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; var tm = M[c]; M[c] = M[p]; M[p] = tm;
+            for (r = 0; r < n; r++) if (r !== c) { var f = M[r][c] / M[c][c]; for (var k = c; k <= n; k++) M[r][k] -= f * M[c][k]; } }
+        return M.map(function (r, i) { return r[n] / r[i]; }); }
+    function ols(rows, y) { var k = rows[0].length, A = [], v = []; for (var a = 0; a < k; a++) { A.push([]); v.push(0); for (var b = 0; b < k; b++) A[a].push(0); }
+        rows.forEach(function (r, i) { for (var a = 0; a < k; a++) { v[a] += r[a] * y[i]; for (var b = 0; b < k; b++) A[a][b] += r[a] * r[b]; } }); return solve(A, v); }
+    var col = YA.map(function (r) { return r[CSQ]; }), colX = XA.map(function (r) { return r[CSQ]; }), CSM = mean(col), CSS = sdv(col);
+    var ts = YA[TSF], tt = ts.map(function (_, t) { return t; });
+    var TR = ols(tt.map(function (t) { return [1, t]; }), ts);
+    var SEAS = function (t) { return [1, t, t % 4 === 1 ? 1 : 0, t % 4 === 2 ? 1 : 0, t % 4 === 3 ? 1 : 0]; };
+    var SM = ols(tt.map(SEAS), ts), smf = function (t) { return SEAS(t).reduce(function (p, c, k) { return p + c * SM[k]; }, 0); };
+    var sse = 0; ts.forEach(function (y, t) { sse += (y - smf(t)) * (y - smf(t)); }); var SRES = Math.sqrt(sse / (NQ - 5));
+    var R1 = corr(ts.slice(1), ts.slice(0, -1)), R4 = corr(ts.slice(4), ts.slice(0, -4)), RBD = corr(YA[TSF], YA[TSF2]);
+    var FC = [12, 13, 14, 15].map(smf);
+    var FM = YA.map(mean), FXM = XA.map(mean), QM = []; for (var q0 = 0; q0 < NQ; q0++) QM.push(mean(YA.map(function (r) { return r[q0]; })));
+    var allX = [], allY = []; XA.forEach(function (r, i) { r.forEach(function (x, t) { allX.push(x); allY.push(YA[i][t]); }); });
+    var PO = ols(allX.map(function (x) { return [1, x]; }), allY);
+    var sxy = 0, sxx = 0; XA.forEach(function (r, i) { r.forEach(function (x, t) { sxy += (x - FXM[i]) * (YA[i][t] - FM[i]); sxx += (x - FXM[i]) * (x - FXM[i]); }); }); var BW = sxy / sxx;
+    var BB = ols(FXM.map(function (x) { return [1, x]; }), FM)[1];
+
+
+    function olsF(rows, y) {
+        var k = rows[0].length, A = [], v = [], a, b; for (a = 0; a < k; a++) { A.push([]); v.push(0); for (b = 0; b < k; b++) A[a].push(0); }
+        rows.forEach(function (r, i) { for (a = 0; a < k; a++) { v[a] += r[a] * y[i]; for (b = 0; b < k; b++) A[a][b] += r[a] * r[b]; } });
+        var B = solve(A, v), sse = 0, ym = mean(y), sst = 0; rows.forEach(function (r, i) { var e = y[i] - r.reduce(function (p, c, j) { return p + c * B[j]; }, 0); sse += e * e; sst += (y[i] - ym) * (y[i] - ym); });
+        return { b: B, sse: sse, r2: 1 - sse / sst, inv: function (j) { var e = []; for (a = 0; a < k; a++) e.push(a === j ? 1 : 0); return solve(A, e)[j]; }, n: y.length, k: k };
+    }
+    function se(f, j, df) { return Math.sqrt(f.sse / (df === undefined ? f.n - f.k : df) * f.inv(j)); }
+    // cross-section, Q4 2024
+    var CSF = olsF(colX.map(function (x) { return [1, x]; }), col), CSB = CSF.b, CSSE = se(CSF, 1);
+    // time series, firm B: x, trend, quarter dummies
+    var tsx = XA[TSF], TSR = tt.map(function (t) { return [1, tsx[t], t, t % 4 === 1 ? 1 : 0, t % 4 === 2 ? 1 : 0, t % 4 === 3 ? 1 : 0]; });
+    var TSFt = olsF(TSR, ts), TSB = TSFt.b, TSSE = se(TSFt, 1), tsfit = function (t) { return TSR[t].reduce(function (p, c, j) { return p + c * TSB[j]; }, 0); };
+    var TRES = ts.map(function (y, t) { return y - tsfit(t); }), dwn = 0; for (var q1 = 1; q1 < NQ; q1++) dwn += (TRES[q1] - TRES[q1 - 1]) * (TRES[q1] - TRES[q1 - 1]);
+    var DW = dwn / TRES.reduce(function (p, e) { return p + e * e; }, 0), RR1 = corr(TRES.slice(1), TRES.slice(0, -1));
+    var DYN = olsF(tt.slice(4).map(function (t) { return [1, ts[t - 4], tsx[t]]; }), ts.slice(4)), DYNSE = se(DYN, 2), DYNR = se(DYN, 1);
+    var D4 = tt.map(function (t) { return t >= 4 ? ts[t] - ts[t - 4] : 0; });
+    // panel
+    var NT = NF * NQ, PF = olsF(allX.map(function (x) { return [1, x]; }), allY), POSE = se(PF, 1);
+    var GX = mean(allX), GY = mean(allY), XQ = []; for (var q2 = 0; q2 < NQ; q2++) XQ.push(mean(XA.map(function (r) { return r[q2]; })));
+    var wx = [], wy = [], w2x = [], w2y = [];
+    XA.forEach(function (r, i) { r.forEach(function (x, t) { wx.push(x - FXM[i]); wy.push(YA[i][t] - FM[i]); w2x.push(x - FXM[i] - XQ[t] + 2 * GX); w2y.push(YA[i][t] - FM[i] - QM[t] + 2 * GY); }); });
+    function thru(xs, ys) { var a = 0, b = 0; for (var i = 0; i < xs.length; i++) { a += xs[i] * ys[i]; b += xs[i] * xs[i]; } return a / b; }
+    var BFE = thru(wx, wy), SSW = 0; wx.forEach(function (x, i) { SSW += (wy[i] - BFE * x) * (wy[i] - BFE * x); });
+    var SXW = wx.reduce(function (p, x) { return p + x * x; }, 0), S2E = SSW / (NT - NF - 1), FESE = Math.sqrt(S2E / SXW);
+    var w2xc = w2x.map(function (x) { return x - GX; }), w2yc = w2y.map(function (y) { return y - GY; }), B2W = thru(w2xc, w2yc), SS2 = 0;
+    w2xc.forEach(function (x, i) { SS2 += (w2yc[i] - B2W * x) * (w2yc[i] - B2W * x); }); var TWSE = Math.sqrt(SS2 / (NT - NF - NQ) / w2xc.reduce(function (p, x) { return p + x * x; }, 0));
+    var BF = olsF(FXM.map(function (x) { return [1, x]; }), FM), BBET = BF.b[1], S2U = BF.sse / (NF - 2), S2A = Math.max(S2U - S2E / NQ, 0.01);
+    var TH = 1 - Math.sqrt(S2E / (S2E + NQ * S2A)), qx = [], qy = [];
+    XA.forEach(function (r, i) { r.forEach(function (x, t) { qx.push([1 - TH, x - TH * FXM[i]]); qy.push(YA[i][t] - TH * FM[i]); }); });
+    var REF = olsF(qx, qy), BRE = REF.b[1], RESE = se(REF, 1);
+    var MUN = olsF(allX.map(function (x, n) { return [1, x, FXM[Math.floor(n / NQ)]]; }), allY), HAU = Math.pow(MUN.b[2] / se(MUN, 2), 2);
+    function Phi(z) { var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2; var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2; }
+    var HAUP = 2 * (1 - Phi(Math.sqrt(HAU)));
+    var dx = [], dy = []; XA.forEach(function (r, i) { for (var t = 1; t < NQ; t++) { dx.push(r[t] - r[t - 1]); dy.push(YA[i][t] - YA[i][t - 1]); } });
+    var FDF = olsF(dx.map(function (x) { return [1, x]; }), dy), BFD = FDF.b[1], FDSE = se(FDF, 1);
+    var pt = function (p) { return p < 0.001 ? '< 0.001' : p.toFixed(3); };
+
+    // ---------- floor and towers (as in the data-types scene) ----------
+    var rowL = [], lbF = [], lbQ = [];
+    for (var i = 0; i < NF; i++) { var rl = bar(COL[i], 0.25); setBar(rl, X(0) - 0.5, 0.01, Z(i), X(NQ - 1) - X(0) + 1); rl.material.opacity = 0.35; rowL.push(rl); var l = label('firm ' + FN[i], X(0) - 0.65, 0.05, Z(i), 'key'); l.el.style.color = COL[i]; lbF.push(l); }
+    for (var t = 0; t < NQ; t++) lbQ.push(label(QS(t), X(t), -0.3, 0.55, 'tick'));
+    var TW = [];
+    for (i = 0; i < NF; i++) for (t = 0; t < NQ; t++) { var bx = box(COL[i], 0.85, true); bx.visible = false; TW.push({ i: i, t: t, b: bx }); }
+    var sph = new THREE.SphereGeometry(0.13, 14, 10), DOT = TW.map(function (w) { var m = new THREE.Mesh(sph, mat(COL[w.i])); m.visible = false; scene.add(m); return m; });
+    var bigS = new THREE.SphereGeometry(0.26, 18, 12), FMD = FM.map(function (_, i) { var m = new THREE.Mesh(bigS, mat(COL[i])); m.add(new THREE.LineSegments(new THREE.EdgesGeometry(bigS), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }))); m.visible = false; scene.add(m); return m; });
+    var rings = FM.map(function (_, i) { return polyline(48, COL[i]); });
+    var fitL = polyline(12, '#00ffff'), resP = []; for (t = 0; t < NQ; t++) resP.push(post('#ffb454', 3));
+    var arcs4 = []; for (t = 4; t < NQ; t++) arcs4.push(polyline(20, '#ffb454'));
+    // scatter frame
+    var sAx = bar('#3c6d80', 0.5), sAy = post('#3c6d80'), sT = []; setBar(sAx, SX(0), 0, SZ, SX(15) - SX(0)); setPost(sAy, SX(0), SZ, H(70));
+    for (var a0 = 0; a0 <= 14; a0 += 2) sT.push(label(String(a0), SX(a0), -0.3, SZ, 'tick'));
+    for (var yv = 20; yv <= 60; yv += 10) sT.push(label(String(yv), SX(0) - 0.4, H(yv), SZ, 'tick'));
+    var lbSx = label('advertising x', SX(15.3), 0, SZ, 'key', true), lbSy = label('sales y', SX(0), H(72), SZ, 'key');
+    var csL = bar('#ffffff', 1.3), poolL = bar('#ffffff', 1.3), betL = bar('#ffffff', 0.9), oneL = bar('#00ffff', 1.5), reL = bar('#ffb454', 1.5), feL = [], csR = [];
+    for (i = 0; i < NF; i++) { feL.push(bar(COL[i], 1.2)); csR.push(post('#ffb454', 1.6)); }
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, '');
+    lbA.el.style.fontSize = '16px';
+
+    // ---------- table: the models, one row each ----------
+    var MOD = [
+        { s: 1, m: 'cross-section OLS', d: 'Q4 2024, n = 6', b: CSB[1], se: CSSE },
+        { s: 5, m: 'time series OLS + trend + season', d: 'firm B, T = 12', b: TSB[1], se: TSSE },
+        { s: 7, m: 'dynamic: + y(t − 4)', d: 'firm B, T = 8', b: DYN.b[2], se: DYNSE },
+        { s: 9, m: 'pooled OLS', d: 'panel, 72', b: PF.b[1], se: POSE },
+        { s: 11, m: 'fixed effects (within)', d: 'panel, 72', b: BFE, se: FESE },
+        { s: 13, m: 'two-way fixed effects', d: 'panel, 72', b: B2W, se: TWSE },
+        { s: 14, m: 'random effects', d: 'panel, 72', b: BRE, se: RESE },
+        { s: 17, m: 'first differences', d: 'panel, 66', b: BFD, se: FDSE }];
+    var built = false, trs = [];
+    function buildTable() {
+        if (built) return; built = true;
+        $('tbl').innerHTML = '<div class="cap">The effect of advertising on sales, model by model</div><table><thead><tr><th>model</th><th>data</th><th>b on x</th><th>SE</th><th>t</th></tr></thead><tbody>' +
+            MOD.map(function (r) { return '<tr><td>' + r.m + '</td><td>' + r.d + '</td><td>' + (r.b >= 0 ? '+' : '−') + Math.abs(r.b).toFixed(2) + '</td><td>' + f2(r.se) + '</td><td>' + f2(r.b / r.se) + '</td></tr>'; }).join('') + '</tbody></table>';
+        trs = [].slice.call($('tbl').querySelectorAll('tbody tr'));
+    }
+    function cur() { var c = -1; MOD.forEach(function (r, k) { if (step >= r.s) c = k; }); if (step === 8) c = 2; if (step === 10) c = 3; if (step === 12) c = 4; if (step === 15) c = 6; if (step === 16) c = 4; if (step === 18) c = -1; return c; }
+
+    function line(m, x0, x1, f, z, a) { setSeg(m, SX(x0), H(f(x0)), SX(x1), H(f(x1)), z); m.visible = a > 0.01; m.material.opacity = a; }
+
+    function update() {
+        var i, t, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        // ----- modes -----
+        var towA = ph(0.1, 0.5) * (1 - ph(1.0, 1.15)) + (ph(4.05, 4.3) * (1 - ph(9.0, 9.15))) * 0, tsA = ph(4.05, 4.4) * (1 - ph(9.0, 9.15));
+        var sc = ph(1.05, 1.4) * (1 - ph(4.0, 4.15)) + ph(9.1, 9.45);
+        var dm = ph(12.1, 12.6) * (1 - ph(14.0, 14.3)), d2 = ph(13.1, 13.6) * (1 - ph(14.0, 14.3)), fd = ph(17.1, 17.6) * (1 - ph(18.0, 18.3));
+        var diff = vis(8, 9) * ph(8.2, 8.6);
+        TW.forEach(function (o, n) {
+            var a = o.i === TSF ? Math.max(towA, tsA) : towA, h = H(YA[o.i][o.t]);
+            if (o.i === TSF && diff > 0) { h = lerp(h, o.t >= 4 ? Math.max(H(Math.abs(D4[o.t])), 0.01) : 0.01, diff); }
+            o.b.visible = a > 0.01; o.b.material.opacity = 0.85 * a; o.b.children[0].material.opacity = Math.min(0.5, a); o.b.scale.set(0.5, Math.max(h, 0.01), 0.5); o.b.position.set(X(o.t) - 0.25, 0, Z(o.i) - 0.25);
+            o.b.material.color.set(diff > 0.5 && o.i === TSF ? (D4[o.t] >= 0 ? '#ffb454' : '#ff5c8a') : COL[o.i]);
+            // dots
+            var d = DOT[n], x = XA[o.i][o.t], y = YA[o.i][o.t], ci = n;
+            var xs = x, ys = y;
+            xs = lerp(xs, x - FXM[o.i] + GX, dm); ys = lerp(ys, y - FM[o.i] + GY, dm);
+            xs = lerp(xs, x - FXM[o.i] - XQ[o.t] + 2 * GX, d2); ys = lerp(ys, y - FM[o.i] - QM[o.t] + 2 * GY, d2);
+            if (o.t > 0) { xs = lerp(xs, x - XA[o.i][o.t - 1] + GX, fd); ys = lerp(ys, y - YA[o.i][o.t - 1] + GY, fd); }
+            var da = step <= 3 ? (o.t === CSQ ? 1 : (step === 3 ? 0.3 * ph(3.3, 3.6) : 0)) : 1;
+            if (o.t === 0) da *= 1 - fd;
+            da *= sc;
+            d.visible = da > 0.01; d.material.opacity = da; d.position.set(SX(xs), H(ys), SZ);
+        });
+        for (i = 0; i < NF; i++) { var la = (towA + tsA * (i === TSF ? 1 : 0.25)) * (1 - sc); lbF[i].a = la; rowL[i].material.opacity = 0.35 * Math.max(towA, tsA); }
+        for (t = 0; t < NQ; t++) lbQ[t].a = 0.85 * Math.max(towA, tsA) * (1 - sc);
+        sAx.visible = sAy.visible = sc > 0.01; sT.forEach(function (l) { l.a = 0.8 * sc; }); lbSx.a = lbSy.a = sc;
+
+        // ----- cross-section line and residuals -----
+        var cf = function (x) { return CSB[0] + CSB[1] * x; };
+        line(csL, 2.5, 14.5, cf, SZ + 0.05, vis(1, 4) * ph(1.4, 1.6));
+        for (i = 0; i < NF; i++) { var ra = vis(2, 3) * ph(2.15 + i * 0.05, 2.3 + i * 0.05), x = colX[i], y = col[i]; setPost(csR[i], SX(x), SZ + 0.04, Math.abs(H(y) - H(cf(x))) * ra, H(Math.min(y, cf(x)))); }
+        // ----- time series: fitted path, residuals, lags -----
+        var zf = Z(TSF) + 0.32, fa = vis(5, 7) * ph(5.2, 5.5);
+        for (t = 0; t < NQ; t++) fitL.set(t, X(t), H(tsfit(t)), zf); fitL.done(Math.max(2, Math.round(12 * cl(fa * 1.3)))); fitL.m.visible = fa > 0.01; fitL.m.material.opacity = fa;
+        for (t = 0; t < NQ; t++) { var r6 = vis(6, 7) * ph(6.15 + t * 0.03, 6.3 + t * 0.03); setPost(resP[t], X(t), zf + 0.05, Math.abs(H(TRES[t])) * 6 * r6, H(tsfit(t)) - (TRES[t] < 0 ? Math.abs(H(TRES[t])) * 6 * r6 : 0)); resP[t].scale.x = resP[t].scale.z = 3; resP[t].material.color.set(TRES[t] >= 0 ? '#ffb454' : '#ff5c8a'); }
+        var a4 = vis(7, 8) * ph(7.2, 7.4);
+        arcs4.forEach(function (pl, k) { var t1 = k, t2 = k + 4, y1 = H(ts[t1]), y2 = H(ts[t2]), top = Math.max(y1, y2) + 0.8; for (var j = 0; j < 20; j++) { var u2 = j / 19; pl.set(j, lerp(X(t1), X(t2), u2), lerp(y1, y2, u2) + (top - Math.max(y1, y2)) * 4 * u2 * (1 - u2) + 0.08, zf); } pl.done(); pl.m.visible = a4 > 0.01; pl.m.material.opacity = a4; });
+        // ----- panel lines -----
+        var pf = function (x) { return PF.b[0] + PF.b[1] * x; };
+        line(poolL, 1, 14, pf, SZ + 0.05, vis(9, 11) * ph(9.5, 9.7) * (step === 10 ? 0.4 : 1));
+        var ma = vis(10, 11) * ph(10.2, 10.4);
+        FMD.forEach(function (m, i) { var a = ma * ph(10.2 + i * 0.05, 10.3 + i * 0.05); m.visible = a > 0.01; m.material.opacity = a; m.position.set(SX(FXM[i]), H(FM[i]), SZ + 0.1); m.scale.setScalar(Math.max(a, 0.01)); });
+        var bf = function (x) { return BF.b[0] + BF.b[1] * x; };
+        line(betL, 3.2, 12.4, bf, SZ + 0.08, vis(10, 11) * ph(10.55, 10.7) + vis(14, 16) * 0.8);
+        for (i = 0; i < NF; i++) { var fe = vis(11, 12) * ph(11.15 + i * 0.06, 11.3 + i * 0.06) * (1 - dm); var fi = (function (i) { return function (x) { return FM[i] + BFE * (x - FXM[i]); }; })(i); line(feL[i], FXM[i] - 3.2, FXM[i] + 3.2, fi, SZ + 0.05, fe); }
+        var ob = step === 12 ? ph(12.6, 12.75) : step === 13 ? ph(13.6, 13.75) : step === 17 ? ph(17.6, 17.75) : vis(14, 16), sl = step === 13 ? B2W : step === 17 ? BFD : BFE;
+        line(oneL, GX - 5.5, GX + 5.5, function (x) { return GY + sl * (x - GX); }, SZ + 0.06, ob);
+        line(reL, GX - 5.5, GX + 5.5, function (x) { return GY + BRE * (x - GX); }, SZ + 0.07, vis(14, 16) * ph(14.4, 14.6));
+        // clusters (step 16)
+        rings.forEach(function (pl, i) { var a = vis(16, 17) * ph(16.15 + i * 0.05, 16.3 + i * 0.05), rx = 0, ry = 0;
+            XA[i].forEach(function (x, t) { rx = Math.max(rx, Math.abs(SX(x) - SX(FXM[i]))); ry = Math.max(ry, Math.abs(H(YA[i][t]) - H(FM[i]))); });
+            for (var j = 0; j < 48; j++) { var an = j / 47 * Math.PI * 2; pl.set(j, SX(FXM[i]) + (rx + 0.2) * Math.cos(an), H(FM[i]) + (ry + 0.2) * Math.sin(an), SZ + 0.02); } pl.done(); pl.m.visible = a > 0.01; pl.m.material.opacity = 0.8 * a; });
+
+        // ----- labels -----
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, z, txt, a, colr) { lb.p.set(x, y, z); lb.a = a; setText(lb, txt); lb.el.style.color = colr || ''; };
+        if (step >= 1 && step <= 3) L(lbA, SX(12.8), H(cf(14.5)) + 0.5, SZ, 'ŷ = ' + f1(CSB[0]) + ' − ' + f2(-CSB[1]) + 'x', ph(1.6, 1.75));
+        if (step === 3) L(lbB, SX(10), H(66), SZ, 'each firm sits in its own cloud', ph(3.6, 3.75));
+        if (step === 5) L(lbA, X(11) + 0.3, H(tsfit(11)) + 0.9, zf, 'fitted: x + trend + season', ph(5.5, 5.65));
+        if (step === 6) L(lbA, X(6), H(52), zf, 'residuals (×6) · Durbin-Watson = ' + f2(DW), ph(6.5, 6.65));
+        if (step === 7) L(lbA, X(6), H(56), zf, 'y(t) on y(t − 4): ρ = ' + f2(DYN.b[1]), ph(7.4, 7.55), '#ffb454');
+        if (step === 8) L(lbA, X(7.5), H(22), zf, 'Δ₄y = y(t) − y(t − 4)', ph(8.6, 8.75));
+        if (step === 9) L(lbA, SX(12.5), H(pf(14)) + 0.6, SZ, 'pooled slope ' + f2(PF.b[1]), ph(9.7, 9.85));
+        if (step === 10) L(lbA, SX(10.8), H(bf(12.4)) - 0.5, SZ, 'between firms: ' + f2(BBET), ph(10.7, 10.85));
+        if (step === 11) L(lbA, SX(9), H(70), SZ, 'own intercept aᵢ, common slope +' + f2(BFE), ph(11.5, 11.65));
+        if (step === 12) L(lbA, SX(GX + 5.5), H(GY + BFE * 5.5) + 0.5, SZ, 'demeaned: slope +' + f2(BFE), ph(12.7, 12.85), '#00ffff');
+        if (step === 13) L(lbA, SX(GX + 5.5), H(GY + B2W * 5.5) + 0.5, SZ, 'firm and quarter removed: +' + f2(B2W), ph(13.7, 13.85), '#00ffff');
+        if (step === 14 || step === 15) { L(lbA, SX(GX + 5.5) + 0.2, H(GY + BFE * 5.5), SZ, 'FE +' + f2(BFE), ph(14.4, 14.55), '#00ffff'); L(lbB, SX(GX + 5.5) + 0.2, H(GY + BRE * 5.5), SZ, 'RE ' + (BRE >= 0 ? '+' : '−') + Math.abs(BRE).toFixed(2), ph(14.6, 14.75), '#ffb454'); L(lbC, SX(12.4) + 0.2, H(bf(12.4)), SZ, 'between ' + f2(BBET), ph(14.4, 14.55)); }
+        if (step === 16) L(lbA, SX(9), H(70), SZ, 'cluster = one firm: its errors move together', ph(16.5, 16.65));
+        if (step === 17) L(lbA, SX(GX + 5.5), H(GY + BFD * 5.5) + 0.5, SZ, 'changes on changes: +' + f2(BFD), ph(17.7, 17.85), '#00ffff');
+
+        // ----- table -----
+        buildTable(); var c = cur();
+        trs.forEach(function (tr, k) { var cl2 = (step < MOD[k].s && !(step === 18) ? 'hid' : '') + (k === c ? ' hl' : ''); if (tr.className !== cl2) tr.className = cl2; });
+
+        // ----- stats -----
+        var st = '';
+        if (step === 1) st = 'b = <b>' + f2(CSB[1]) + '</b> · SE ' + f2(CSSE) + ' · R² = ' + f2(CSF.r2);
+        else if (step === 2) st = 'with few units and unequal spread, use robust (White) standard errors';
+        else if (step === 3) st = 'cross-section slope <b>' + f2(CSB[1]) + '</b> mixes advertising with firm size';
+        else if (step === 5) st = 'b on x = <b>' + f2(TSB[1]) + '</b> · trend ' + f2(TSB[2]) + ' · Q4 effect ' + f1(TSB[5]) + ' · R² = ' + f2(TSFt.r2);
+        else if (step === 6) st = 'DW = <b>' + f2(DW) + '</b> (2 = no autocorrelation) · r(eₜ, eₜ₋₁) = ' + f2(RR1);
+        else if (step === 7) st = 'ρ on y(t − 4) = <b>' + f2(DYN.b[1]) + '</b> · b on x = <b>' + f2(DYN.b[2]) + '</b>';
+        else if (step === 8) st = 'seasonal differences remove the season and most of the trend';
+        else if (step === 9) st = 'pooled OLS b = <b>' + f2(PF.b[1]) + '</b> · n = 72';
+        else if (step === 10) st = 'between-firm slope = <b>' + f2(BBET) + '</b> · aᵢ is tied to x';
+        else if (step === 11 || step === 12) st = 'fixed effects b = <b>+' + f2(BFE) + '</b> · SE ' + f2(FESE);
+        else if (step === 13) st = 'two-way FE b = <b>+' + f2(B2W) + '</b>';
+        else if (step === 14) st = 'θ = ' + f2(TH) + ' · RE b = <b>' + f2(BRE) + '</b> (θ = 1 gives FE, θ = 0 gives pooled)';
+        else if (step === 15) st = 'Hausman (Mundlak form) χ² = <b>' + f1(HAU) + '</b> · p ' + (HAUP < 0.001 ? '< 0.001' : '= ' + HAUP.toFixed(3)) + ' → use fixed effects';
+        else if (step === 16) st = '6 clusters · cluster-robust SE by firm';
+        else if (step === 17) st = 'first-difference b = <b>+' + f2(BFD) + '</b>';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var ISO = [[14.5, 10, 10.5], [4.6, 1.8, -3.4], -1.6], FRT = [[5.5, 5.6, 12.5], [5.0, 2.4, -1.6], -2.2], SCAT = [[5.4, 3.9, 17.5], [5.4, 3.3, 2.2], -1.9];
+    var CAM = [ISO, SCAT, SCAT, SCAT, FRT, FRT, FRT, FRT, FRT, SCAT, SCAT, SCAT, SCAT, SCAT, SCAT, SCAT, SCAT, SCAT, SCAT];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fY", "fA", "fB", "fX", "fE"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

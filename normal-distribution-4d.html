@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Normal Distribution in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Z equals X minus mu, divided by sigma">
+            <span class="p" id="fZ">Z</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fX">X</span> <span class="sym">−</span> <span class="p" id="fMu">μ</span></span><span class="bot"><span class="p" id="fSig">σ</span></span></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- the normal curve: values with mean 50 and standard deviation 10 ----------
+    var MU0 = 50, SG0 = 10, W = 2, A = 6;            // W world units per standard deviation, A = peak height
+    function wx(v) { return (v - MU0) / SG0 * W; }
+    function hgt(v, mu, sg) { var z = (v - mu) / sg; return A * (SG0 / sg) * Math.exp(-z * z / 2); }
+    function Phi(z) {                                 // area under the standard normal curve to the left of z
+        var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2;
+        var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2;
+    }
+    function invPhi(p) { var lo = -6, hi = 6; for (var i = 0; i < 50; i++) { var mid = (lo + hi) / 2; if (Phi(mid) < p) lo = mid; else hi = mid; } return (lo + hi) / 2; }
+
+    var STEPS = [
+        {
+                "t": "Many small effects pile up",
+                "n": "Each dot is one measurement. Most land near the middle and fewer land far out, on both sides equally.",
+                "s": "300 measurements",
+                "on": []
+        },
+        {
+                "t": "The bell curve",
+                "n": "Trace the top of the pile and you get the normal curve: one peak, symmetric, with tails that fade but never quite reach zero.",
+                "s": "mean = median = mode",
+                "on": []
+        },
+        {
+                "t": "Two numbers describe it",
+                "n": "μ is the centre of the curve. σ is its width: the distance from the centre to the point where the curve changes from bending down to bending out.",
+                "s": "μ = 50 · σ = 10",
+                "on": [
+                        "fMu",
+                        "fSig"
+                ]
+        },
+        {
+                "t": "μ slides the curve",
+                "n": "Change the mean and the whole curve moves along the line. Its shape does not change. The grey curve is where it started.",
+                "s": "",
+                "on": [
+                        "fMu"
+                ]
+        },
+        {
+                "t": "σ stretches the curve",
+                "n": "A bigger σ makes it wide and low, a smaller σ makes it narrow and tall. The area under the curve is always 1, that is 100% of the data.",
+                "s": "",
+                "on": [
+                        "fSig"
+                ]
+        },
+        {
+                "t": "The 68, 95, 99.7 rule",
+                "n": "Count the dots inside one, two and three σ from the mean. This holds for every normal curve.",
+                "s": "",
+                "on": [
+                        "fSig"
+                ]
+        },
+        {
+                "t": "Every normal curve is the same curve",
+                "n": "Measure the distance from the mean in σ and the axis becomes Z. One table of Z covers every normal distribution.",
+                "s": "Z = (X − 50) ÷ 10",
+                "on": [
+                        "fZ",
+                        "fX",
+                        "fMu",
+                        "fSig"
+                ]
+        },
+        {
+                "t": "Probability is area",
+                "n": "The chance that a value falls below X is the area under the curve to its left. Slide X and watch the area grow.",
+                "s": "",
+                "on": [
+                        "fZ",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Above a value",
+                "n": "The chance of landing above X is the rest of the area. The two sides always add to 1, so subtract the left area from 1.",
+                "s": "P(X > 63.3) = 1 − 0.908 = <b>0.092</b>",
+                "on": [
+                        "fZ",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Between two values",
+                "n": "The chance of landing between two values is the area between them: the left area of the upper value minus the left area of the lower one.",
+                "s": "",
+                "on": [
+                        "fZ",
+                        "fX"
+                ]
+        },
+        {
+                "t": "Backwards: from area to value",
+                "n": "Sometimes the area is given and the value is wanted. Grow the area until it reaches 90%, read off Z, then turn Z back into X.",
+                "s": "",
+                "on": [
+                        "fX",
+                        "fMu",
+                        "fSig"
+                ]
+        },
+        {
+                "t": "Not everything is normal",
+                "n": "Here the same 300 dots take a lopsided shape with one long tail. The bell curve no longer fits, so the 68, 95, 99.7 rule and the Z table would mislead.",
+                "s": "mean above median · one long tail",
+                "on": []
+        },
+        {
+                "t": "A straight-line check",
+                "n": "Sort the data and plot each value against the Z it should have if it were normal. Normal data falls on a straight line. This data bends away, so it is not normal.",
+                "s": "normal probability plot",
+                "on": []
+        },
+        {
+                "t": "Averages become normal anyway",
+                "n": "Take samples of 10 from that lopsided data and average each one. The pile of averages is a bell again. This is why the normal curve is used for means.",
+                "s": "central limit theorem",
+                "on": []
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+
+    var axis = bar('#3c6d80', 0.5); setBar(axis, wx(14), 0, 0, wx(86) - wx(14));
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), lbX = [], lbZt = [];
+    for (var k = -3; k <= 3; k++) {
+        var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(k * W, 0, 0); scene.add(tk);
+        lbX.push(label(String(MU0 + k * SG0), k * W, -0.45, 0, 'tick')); lbZt.push(label((k > 0 ? '+' : k < 0 ? '−' : '') + Math.abs(k), k * W, -1.0, 0, 'key'));
+    }
+    var lbAxX = label('X', wx(88), 0, 0, 'tick'), lbAxZ = label('Z', wx(88), -1.0, 0, 'key');
+
+    // 300 measurements placed at the exact quantiles of the curve, so the pile has the true shape
+    var ND = 300, r0 = rng(7), dots = [], bins = {}, dGeo = new THREE.SphereGeometry(0.095, 10, 8);
+    var dm = mat('#4dd2ff', 0.95), dh = mat('#ffb454', 1);
+    for (var i = 0; i < ND; i++) {
+        var z = invPhi((i + 0.5) / ND), b = Math.round(z / 0.25), n = bins[b] || 0; bins[b] = n + 1;
+        var d = new THREE.Mesh(dGeo, dm); d.visible = false; scene.add(d);
+        dots.push({ m: d, z: z, x: b * 0.25 * W, y: 0.1 + n * 0.2, t0: 0.05 + (n / 30) * 0.55 + r0() * 0.15 });
+    }
+    // other arrangements of the same 300 dots, used in the later steps
+    var QY = function (v) { return (v - 20) / 60 * 7; };                 // height of a value on the straight-line check
+    function pile(vals, binw, dy) { var cnt = {}; return vals.map(function (v) { var b = Math.round(v / binw), n = cnt[b] || 0; cnt[b] = n + 1; return [wx(b * binw), 0.1 + n * (dy || 0.2)]; }); }
+    var skew = dots.map(function (d) { return 30 + 18 * Math.exp(0.35 * d.z); });   // a right-skewed set of values
+    var L1 = pile(skew, 2.5), L2 = dots.map(function (d, i) { return [d.z * W, QY(skew[i])]; });
+    var r1 = rng(11), means = [];
+    for (i = 0; i < ND; i++) { var sum = 0; for (var q2 = 0; q2 < 10; q2++) sum += skew[Math.floor(r1() * ND)]; means.push(sum / 10); }
+    means.sort(function (a, b) { return a - b; });
+    var MM = means.reduce(function (a, b) { return a + b; }) / ND, MS = Math.sqrt(means.reduce(function (a, b) { return a + (b - MM) * (b - MM); }, 0) / ND);
+    var L4 = pile(means, 1, 0.1);
+    var refLine = bar('#ffffff', 0.8), qAxis = post('#3c6d80'), lbQ = [];
+    for (k = 30; k <= 80; k += 10) lbQ.push(label(String(k), -3.75 * W, QY(k), 0, 'tick'));
+    var lbQt = label('data value', -3.75 * W, QY(86), 0, 'tick'), lbRef = label('normal data would follow this line', 1.2 * W, QY(48.5 + 6.37 * 1.2) + 1.0, 0, ''), lbMeans = label('', 0, 0, 0, 'eq');
+    var tail2 = strip(61, '#ffb454', 0), cutLine2 = post('#ffb454', 1.6);
+    var NP = 141, curve = polyline(NP, '#00ffff'), ghost = polyline(NP, '#5d9ab3', 0.6), fill = strip(NP, '#00ffff', 0.1), arch = strip(NP, '#00ffff', 0.3);
+    var bands = [strip(61, '#ffb454', 0), strip(61, '#5cff9d', 0), strip(61, '#b388ff', 0)], cutArea = strip(121, '#ffb454', 0);
+    var muLine = post('#00ffff', 1.4), sgRuler = bar('#ffffff', 1.5), cutLine = post('#ffb454', 1.6);
+    var lbMu = label('', 0, 0, 0, 'key'), lbSg = label('', 0, 0, 0, 'key', true), lbBand = label('', 0, 7.9, 0, 'eq'), lbCut = label('', 0, 0, 0, 'eq');
+    for (i = 0; i < NP; i++) { var v0 = 10 + 80 * i / (NP - 1); ghost.set(i, wx(v0), hgt(v0, MU0, SG0), 0); } ghost.done();
+    function area(st, npt, a, bb, mu, sg, zz) { for (var q = 0; q < npt; q++) { var v = a + (bb - a) * q / (npt - 1); st.set(q, wx(v), hgt(v, mu, sg), zz, wx(v), 0, zz); } st.done(); }
+
+    function update() {
+        var i;
+        // the two numbers, live in steps 4 and 5
+        var mu = lerp(lerp(lerp(50, 65, ph(3.1, 3.4)), 40, ph(3.45, 3.75)), 50, ph(3.8, 3.95));
+        var sg = lerp(lerp(lerp(10, 18, ph(4.1, 4.4)), 6, ph(4.45, 4.75)), 10, ph(4.8, 4.95));
+
+        // which band is being counted in step 6
+        var kb = T >= 5.1 && T < 6 ? (T < 5.38 ? 1 : T < 5.66 ? 2 : 3) : 0, inside = 0;
+        dm.opacity = 0.95 - 0.83 * ph(3.02, 3.1) + 0.83 * ph(4.95, 5.05) - 0.6 * ph(6.02, 6.15) + 0.6 * ph(11.02, 11.12);
+        var f1 = ph(11.15, 11.7), f2 = ph(12.1, 12.6), f4 = ph(13.15, 13.75);
+        for (i = 0; i < ND; i++) {
+            var d = dots[i], f = ph(d.t0, d.t0 + 0.14);
+            d.m.visible = T >= d.t0;
+            var px = lerp(lerp(lerp(d.x, L1[i][0], f1), L2[i][0], f2), L4[i][0], f4), py = lerp(lerp(lerp(d.y, L1[i][1], f1), L2[i][1], f2), L4[i][1], f4);
+            d.m.position.set(px, lerp(9.5, py, f * f), 0);
+            var isIn = kb && Math.abs(d.z) < kb; if (isIn) inside++;
+            d.m.material = isIn ? dh : dm;
+        }
+        // the curve
+        var draw = ph(1.1, 1.7), late = T >= 13.1, cmu = late ? MM : mu, csg = late ? MS : sg, fac = late ? 0.2 : 1;
+        var cv = 1 - ph(12.02, 12.12) + ph(13.1, 13.3);
+        curve.m.material.opacity = cv; fill.m.material.opacity = 0.1 * cv; arch.m.material.opacity = 0.3 * cv;
+        for (i = 0; i < NP; i++) { var v = 10 + 80 * i / (NP - 1), h = hgt(v, cmu, csg) * fac, x = wx(v); curve.set(i, x, h, 0); fill.set(i, x, h, -0.02, x, 0, -0.02); arch.set(i, x, h, -0.7, x, h, 0.7); }
+        var np = Math.floor(NP * draw); curve.done(np); fill.done(np); arch.done(np);
+        ghost.m.visible = T >= 3.1 && T < 5; 
+
+        var gone = 1 - ph(11.0, 11.1), mg = ph(2.1, 2.35) * gone, sgg = ph(2.4, 2.65) * gone, top = A * SG0 / sg, infl = top * Math.exp(-0.5);
+        setPost(muLine, wx(mu), 0, (top + 0.5) * mg); lbMu.p.set(wx(mu), top + 0.95, 0); lbMu.a = mg; setText(lbMu, 'μ = ' + num(mu, 0));
+        setBar(sgRuler, wx(mu), infl, 0.05, (sg / SG0) * W * sgg); lbSg.p.set(wx(mu + sg) + 0.25, infl, 0); lbSg.a = sgg * (1 - ph(7.0, 7.1)); setText(lbSg, 'σ = ' + num(sg, 0));
+
+        // 68 - 95 - 99.7
+        var ba = [ph(5.1, 5.22) * (1 - ph(6.0, 6.12)), ph(5.38, 5.5) * (1 - ph(6.0, 6.12)), ph(5.66, 5.78) * (1 - ph(6.0, 6.12))];
+        for (i = 0; i < 3; i++) { bands[i].m.material.opacity = ba[i] * (i === 0 ? 0.42 : 0.26); bands[i].m.visible = ba[i] > 0; area(bands[i], 61, mu - (i + 1) * sg, mu + (i + 1) * sg, mu, sg, 0.04 + i * 0.01); }
+        lbBand.a = kb ? 1 : 0; if (kb) setText(lbBand, 'within ±' + kb + 'σ: ' + inside + ' of 300 dots → about ' + ['68%', '95%', '99.7%'][kb - 1]);
+
+        // values and Z on the axis
+        var qq = ph(12.1, 12.3) * (1 - ph(13.0, 13.1)), zf = ph(6.2, 6.5) * gone + qq;
+        for (i = 0; i < 7; i++) { lbX[i].a = 0.85 * ph(0.02, 0.1) * (1 - qq); lbZt[i].a = zf; }
+        lbAxX.a = 0.85 * (1 - qq); lbAxZ.a = zf;
+        // straight-line check (normal probability plot)
+        setSeg(refLine, -3 * W, QY(48.5 - 6.37 * 3), lerp(-3 * W, 3 * W, ph(12.5, 12.8)), QY(48.5 + 6.37 * (lerp(-3, 3, ph(12.5, 12.8)))), -0.02); refLine.visible = qq > 0 && T >= 12.5; refLine.material.opacity = qq;
+        setPost(qAxis, -3.5 * W, 0, 7.4 * qq); for (i = 0; i < lbQ.length; i++) lbQ[i].a = 0.85 * qq; lbQt.a = 0.85 * qq; lbRef.a = ph(12.8, 12.92) * qq;
+        var ma = ph(13.75, 13.9); lbMeans.p.set(wx(MM), hgt(MM, MM, MS) * 0.2 + 0.8, 0); lbMeans.a = ma; setText(lbMeans, 'averages of 10 values: a bell again');
+
+        // probability as area: left of a value, right of it, between two values, and backwards from an area
+        var cg = ph(7.05, 7.15), cut = lerp(30, 63.3, ph(7.15, 7.8)), a1 = 10, b1 = cut, op = cg * (1 - ph(8.1, 8.3)), sl = ph(9.5, 9.9);
+        if (T >= 10) { b1 = lerp(30, 62.8, ph(10.1, 10.75)); op = ph(10.0, 10.1) * (1 - ph(11.0, 11.1)); }
+        else if (T >= 8.3) { a1 = lerp(40, 45, sl); b1 = lerp(60, 65, sl); op = ph(9.1, 9.25) * (1 - ph(9.96, 10.0)); }
+        var op2 = ph(8.3, 8.5) * (1 - ph(9.0, 9.1)), between = T >= 9.1 && T < 10;
+        cutArea.m.visible = op > 0; cutArea.m.material.opacity = 0.5 * op; area(cutArea, 121, a1, b1, 50, 10, 0.06);
+        tail2.m.visible = op2 > 0; tail2.m.material.opacity = 0.5 * op2; area(tail2, 61, 63.3, 90, 50, 10, 0.06);
+        var lx = T < 8.3 ? cut : T < 9.05 ? 63.3 : b1, lop = T < 8.1 ? cg : T < 9.05 ? 1 : op;
+        setPost(cutLine, wx(lx), 0.06, (hgt(lx, 50, 10) + 0.4) * lop); setPost(cutLine2, wx(a1), 0.06, between ? (hgt(a1, 50, 10) + 0.4) * op : 0);
+        var pz = (lx - 50) / 10, pr = Phi(pz), pb = Phi((b1 - 50) / 10) - Phi((a1 - 50) / 10);
+        lbCut.p.set(wx(between ? (a1 + b1) / 2 : lx), (between ? hgt(50, 50, 10) : hgt(lx, 50, 10)) + 0.85 + (between ? 0.9 : 0), 0); lbCut.a = lop;
+        setText(lbCut, T < 8.3 ? 'area to the left = ' + pr.toFixed(3) : T < 9.05 ? 'area to the right = ' + (1 - pr).toFixed(3) : between ? 'area between = ' + pb.toFixed(3) : 'area to the left = ' + pr.toFixed(3));
+
+        if (step === 3) setStats('μ = <b>' + num(mu, 0) + '</b> · σ = 10 <span class="dim">(same shape, new place)</span>');
+        else if (step === 4) setStats('μ = 50 · σ = <b>' + num(sg, 0) + '</b> <span class="dim">(area stays 1)</span>');
+        else if (step === 5) setStats(kb ? '±' + kb + 'σ holds <b>' + ['68%', '95%', '99.7%'][kb - 1] + '</b>' : '68% · 95% · 99.7%');
+        else if (step === 7) setStats('P(X < ' + num(cut) + ') = P(Z < ' + sgn(pz) + ') = <b>' + pr.toFixed(3) + '</b>');
+        else if (step === 9) setStats('P(' + num(a1, 0) + ' < X < ' + num(b1, 0) + ') = ' + Phi((b1 - 50) / 10).toFixed(3) + ' − ' + Phi((a1 - 50) / 10).toFixed(3) + ' = <b>' + pb.toFixed(3) + '</b>');
+        else if (step === 10) setStats('area ' + pr.toFixed(2) + ' → Z = ' + sgn(pz) + ' → X = 50 + ' + num(pz, 2) + ' × 10 = <b>' + num(lx) + '</b>');
+    }
+
+    // ---------- camera ----------
+    var FRONT = [[2.5, 4.6, 18], [0, 3.1, 0]], TILT = [[6, 6.5, 17], [0, 3.4, 0]], HIGH = [[2, 5.4, 21], [0, 4.2, 0]];
+    var CAM = [FRONT, TILT, FRONT, [[2, 4.6, 20], [0.5, 3.6, 0]], [[2, 6, 22], [0, 4.6, 0]], TILT, FRONT, FRONT, FRONT, FRONT, FRONT, HIGH, HIGH, HIGH];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fZ", "fX", "fMu", "fSig"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

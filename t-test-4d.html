@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>t Test in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="t equals X bar minus mu zero, divided by S over root n">
+            <span class="p" id="fT">t</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fX"><span class="bar">X</span></span> <span class="sym">−</span> <span class="p" id="fMu">μ<sub style="font-size:.6em">0</sub></span></span><span class="bot"><span class="p" id="fS">S</span> <span class="sym">÷</span> <span class="p" id="fN">√<span class="bar">n</span></span></span></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- one sample of 9 (mean 8, standard deviation 3), a claimed mean, and later a second group ----------
+    var VA = [3, 5, 7, 7, 8, 9, 9, 11, 13], VB = [-0.5, 1.5, 3.5, 3.5, 4.5, 5.5, 5.5, 7.5, 9.5], N = 9;
+    var ZB = 4.5, ZT = 12, TC = 7, TS = 1.2, HT = 10;   // bench depth; t-axis depth, centre, world units per t, height scale
+    function tpdf(t, df) { return Math.pow(1 + t * t / df, -(df + 1) / 2); }
+    var NORM = {};
+    function cn(df) { if (!NORM[df]) { var a = 0, h = 0.02; for (var q = 0; q < 4000; q++) a += (tpdf(q * h, df) + tpdf((q + 1) * h, df)) / 2 * h; NORM[df] = 0.5 / a; } return NORM[df]; }
+    function upper(x, df) {                            // area under the t curve to the right of x
+        var ax = Math.abs(x), n = 240, h = ax / n, a = 0; for (var q = 0; q < n; q++) a += (tpdf(q * h, df) + tpdf((q + 1) * h, df)) / 2 * h;
+        return x >= 0 ? 0.5 - cn(df) * a : 0.5 + cn(df) * a;
+    }
+    var CR = {};
+    function crit(df, alpha) { var key = df + '/' + alpha; if (!CR[key]) { var lo = 0, hi = 20; for (var q = 0; q < 40; q++) { var mid = (lo + hi) / 2; if (upper(mid, df) > alpha) lo = mid; else hi = mid; } CR[key] = (lo + hi) / 2; } return CR[key]; }
+    function tx(t) { return TC + t * TS; }
+    var ptxt = function (p) { return p < 0.001 ? '< 0.001' : p.toFixed(3); };
+
+    var STEPS = [
+        {
+                "t": "A sample and a claim",
+                "n": "Nine measurements, and a claim that the true mean is 5.5 (pink line). Does the sample agree with the claim?",
+                "s": "n = 9 · claim: μ₀ = 5.5",
+                "on": [
+                        "fMu"
+                ]
+        },
+        {
+                "t": "The sample mean and the gap",
+                "n": "The sample mean is 8. It sits 2.5 above the claim. That gap is the top of the fraction.",
+                "s": "<span style=\"text-decoration:overline\">X</span> − μ₀ = 8 − 5.5 = <b>2.5</b>",
+                "on": [
+                        "fX",
+                        "fMu"
+                ]
+        },
+        {
+                "t": "Is 2.5 a big gap? Measure the noise",
+                "n": "It depends how much the data scatter. The standard deviation of the sample is S = 3, the white ruler.",
+                "s": "S = 3",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Shrink S to a standard error",
+                "n": "A mean of 9 values is steadier than one value. Cut the ruler by √n = 3 and keep one piece: the standard error.",
+                "s": "S ÷ √n = 3 ÷ √9 = <b>1</b>",
+                "on": [
+                        "fS",
+                        "fN"
+                ]
+        },
+        {
+                "t": "Count the gap in standard errors",
+                "n": "Lay the gap on the floor and measure it with standard-error rulers. The count is t.",
+                "s": "t = 2.5 ÷ 1 = <b>2.5</b>",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "If the claim were true",
+                "n": "This curve shows where t would land by chance alone if the claim were right: usually near 0, rarely far out. Ours is at 2.5.",
+                "s": "t curve with n − 1 = 8 degrees of freedom",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "The p-value is the area beyond",
+                "n": "Shade everything at least as far out as our t, on both sides. That area is the p-value. Beyond the white 5% cut-offs, we reject the claim.",
+                "s": "",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "Move the claim and watch",
+                "n": "Slide the claimed mean. As it nears the sample mean, t shrinks, the shaded area grows and we can no longer reject. Farther away, the evidence gets stronger.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fX",
+                        "fMu",
+                        "fS",
+                        "fN"
+                ]
+        },
+        {
+                "t": "A confidence interval",
+                "n": "Turn the test around. Every claimed mean within 2.31 standard errors of the sample mean would survive the test. That range is the 95% confidence interval. The claim of 5.5 lies outside it.",
+                "s": "",
+                "on": [
+                        "fX",
+                        "fS",
+                        "fN"
+                ]
+        },
+        {
+                "t": "More data sharpens the test",
+                "n": "Collect four times as many measurements with about the same spread. The standard error halves, the interval narrows and t doubles.",
+                "s": "",
+                "on": [
+                        "fN",
+                        "fT"
+                ]
+        },
+        {
+                "t": "Two kinds of mistake",
+                "n": "The white cut-offs allow a 5% chance of rejecting a claim that is true. The pink curve shows where t would land if the true mean really were 8. The part inside the cut-offs is a real difference we would miss.",
+                "s": "",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "A one-sided test",
+                "n": "If only \"greater than 5.5\" matters, all of the 5% goes in one tail. The cut-off moves in and the p-value halves. This choice must be made before looking at the data.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fMu"
+                ]
+        },
+        {
+                "t": "Comparing two groups",
+                "n": "Replace the claim with a second sample, in green. The gap is now between two sample means, and the standard error combines the noise of both groups.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fX",
+                        "fS",
+                        "fN"
+                ]
+        },
+        {
+                "t": "One outlier can undo it",
+                "n": "Back to one sample. Slide the largest value far out. The mean rises a little but S grows a lot, so t falls and the result is no longer significant. Look at the data first.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fX",
+                        "fS"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    grid.position.set(7, -0.03, 6);
+
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04);
+    var axis = bar('#3c6d80', 0.5); setBar(axis, -1, 0, 0, 21.5);
+    for (var k = 0; k <= 20; k++) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(k, 0, 0); scene.add(tk); if (k % 2 === 0) label(String(k), k, -0.5, 0, 'tick').a = 0.8; }
+    var sph = new THREE.SphereGeometry(0.22, 20, 14), pts = [], extra = [], ptsB = [], seen = {}, seenB = {};
+    VA.forEach(function (v) { var n = seen[v] || 0; seen[v] = n + 1; var p = new THREE.Mesh(sph, mat('#b388ff')); p.position.set(v, 0.4 + n * 0.5, 0); scene.add(p); pts.push(p); });
+    for (var rep = 0; rep < 3; rep++) VA.forEach(function (v) { var n = seen[v]; seen[v] = n + 1; var p = new THREE.Mesh(sph, mat('#b388ff', 0.8)); p.position.set(v, 0.4 + n * 0.5, 0); p.visible = false; scene.add(p); extra.push(p); });
+    VB.forEach(function (v) { var n = seenB[v] || 0; seenB[v] = n + 1; var p = new THREE.Mesh(sph, mat('#5cff9d')); p.position.set(v, 2.3 + n * 0.5, 0); p.visible = false; scene.add(p); ptsB.push(p); });
+    var claim = post('#ff5c8a', 1.4), meanLine = post('#00ffff', 1.4), meanB = post('#5cff9d', 1.4), gap = bar('#ffb454', 1.6), sBright = bar('#ffffff', 1.5), sDim = bar('#ffffff', 1.5);
+    var ci = bar('#00ffff', 2.2), ciL = post('#00ffff', 1.4), ciR = post('#00ffff', 1.4);
+    var bGap = bar('#ffb454', 2), bSE = []; for (k = 0; k < 6; k++) bSE.push(bar('#ffffff', 2));
+    var lbClaim = label('', 0, 6.6, 0, ''), lbMean = label('', 0, 6.6, 0, 'key'), lbMeanB = label('X̄₂ = 4.5', 3.4, 6.6, 0, ''), lbGap = label('', 0, 5.0, 0, 'eq'), lbS = label('', 0, 5.6, 0, 'key', true), lbCI = label('', 0, 3.1, 0, 'key');
+    lbClaim.el.style.color = '#ff8fae'; lbMeanB.el.style.color = '#5cff9d';
+    var lbBench = label('', 0, 0.7, ZB + 0.3, 'eq', true);
+
+    // the t curve on the front line
+    var tAxis = bar('#3c6d80', 0.5), tTicks = [], lbT = [];
+    for (k = -5; k <= 5; k++) { var t2 = new THREE.Mesh(tickGeo, mat('#5d9ab3')); t2.position.set(tx(k), 0, ZT); scene.add(t2); tTicks.push(t2); lbT.push(label((k > 0 ? '+' : k < 0 ? '−' : '') + Math.abs(k), tx(k), 0.02, ZT + 0.55, 'tick')); }
+    var NP = 141, curve = polyline(NP, '#00ffff'), fill = strip(NP, '#00ffff', 0.12), tailL = strip(41, '#ffb454', 0), tailR = strip(41, '#ffb454', 0);
+    var alt = polyline(NP, '#ff5c8a'), beta = strip(61, '#ff5c8a', 0);
+    var critL = post('#ffffff'), critR = post('#ffffff'), tMark = post('#ffb454', 1.8);
+    var lbTm = label('', 0, 0, ZT, 'eq'), lbCrit = label('5% cut-off', 0, 3.65, ZT, ''), lbP = label('', tx(0), 0.1, ZT + 1.7, 'key'), lbAx = label('t', tx(5.8), 0.02, ZT, 'key');
+    var lbAlt = label('where t lands if the true mean is 8', tx(2.5), 5.0, ZT, ''), lbBeta = label('', tx(0.9), 1.3, ZT + 0.1, ''), lbPow = label('', tx(4.6), 2.7, ZT + 0.1, '');
+    lbAlt.el.style.color = lbBeta.el.style.color = lbPow.el.style.color = '#ff8fae';
+    lbP.el.style.fontSize = '18px';
+
+    function update() {
+        var i;
+        // ----- the situation at this moment -----
+        var mu0 = T < 8 ? lerp(lerp(5.5, 6.5, ph(7.1, 7.5)), 5.0, ph(7.55, 7.95)) : lerp(5.0, 5.5, ph(8.02, 8.15));
+        var o = ph(13.15, 13.8), data = VA.slice(); data[8] = 13 + 6 * o;       // the largest value slides out in the last step
+        var XM = 0; for (i = 0; i < N; i++) XM += data[i] / N;
+        var S = 0; for (i = 0; i < N; i++) S += (data[i] - XM) * (data[i] - XM); S = Math.sqrt(S / (N - 1));
+        var big = ph(9.15, 9.7) * (1 - ph(10.02, 10.15));                       // the sample grows from 9 to 36
+        var two = T >= 12 ? ph(12.1, 12.45) * (1 - ph(13.0, 13.1)) : 0, isTwo = two > 0.5, one = T >= 11.1 && T < 12;
+        var SE = isTwo ? 3 * Math.sqrt(2 / 9) : lerp(S / 3, 2.87 / 6, big), df = isTwo ? 16 : big > 0.5 ? 35 : 8;
+        var ref = lerp(mu0, 4.5, two), g = XM - ref, t = g / SE;
+        var c2 = crit(df, 0.025), c1 = crit(df, 0.05), cu = one ? c1 : c2;
+        var p = one ? upper(t, df) : 2 * upper(Math.abs(t), df), rej = one ? t > c1 : Math.abs(t) > c2;
+
+        // ----- wall -----
+        for (i = 0; i < N; i++) { var a = ph(0.05 + i * 0.05, 0.2 + i * 0.05); pts[i].scale.setScalar(Math.max(a, 0.001)); pts[i].visible = a > 0; pts[i].position.x = data[i]; }
+        for (i = 0; i < 27; i++) { var e = cl(big * 2.2 - i / 27); extra[i].visible = e > 0; extra[i].scale.setScalar(Math.max(e, 0.001)); }
+        for (i = 0; i < N; i++) { ptsB[i].visible = two > 0; ptsB[i].scale.setScalar(Math.max(two, 0.001)); }
+        var cg = ph(0.55, 0.8) * (1 - two); setPost(claim, mu0, 0, 6.2 * cg); lbClaim.p.x = mu0 - 1.4; lbClaim.a = cg; setText(lbClaim, 'claim: μ₀ = ' + num(mu0));
+        setPost(meanB, 4.5, 0, 6.2 * two); lbMeanB.a = two;
+        var mg = ph(1.1, 1.35); setPost(meanLine, XM, 0, 6.2 * mg); lbMean.p.x = XM + 0.95; lbMean.a = mg; setText(lbMean, (two > 0.5 ? 'X̄₁ = ' : 'X̄ = ') + (Math.abs(XM - 8) < 0.005 ? '8' : XM.toFixed(2)));
+        var gg = ph(1.45, 1.75); setBar(gap, ref, 4.6, 0, g * gg); lbGap.p.x = ref + g / 2; lbGap.a = gg; setText(lbGap, 'gap = ' + num(g, Math.abs(g * 10 - Math.round(g * 10)) < 0.01 ? 1 : 2));
+        // S ruler, then shrunk to one standard error
+        var sg = ph(2.15, 2.5), cut = ph(3.15, 3.45), bright = lerp(S, SE, cut);
+        setBar(sBright, XM, 5.6, 0, bright * sg); setBar(sDim, XM + bright + 0.12 * cut, 5.6, 0, Math.max(S - bright, 0) * sg); sDim.material.opacity = 0.3;
+        lbS.p.x = XM + S + 0.45; lbS.a = sg; setText(lbS, T < 3.3 ? 'S = ' + num(S, 2).replace('.00', '') : 'standard error = ' + SE.toFixed(2).replace('.00', ''));
+        // confidence interval
+        var cia = ph(8.2, 8.5) * (1 - ph(10.0, 10.1)), lo = XM - c2 * SE, hi = XM + c2 * SE;
+        setBar(ci, lerp(XM, lo, cia), 3.7, 0, (hi - lo) * cia); setPost(ciL, lo, 0, 0.7 * cia, 3.35); setPost(ciR, hi, 0, 0.7 * cia, 3.35);
+        lbCI.p.x = XM; lbCI.a = cia; setText(lbCI, '95% confidence interval: ' + lo.toFixed(2) + ' to ' + hi.toFixed(2));
+
+        // ----- bench: how many standard errors fit in the gap -----
+        var bg = ph(4.1, 4.45), bench = T >= 4.1;
+        setBar(bGap, lerp(ref, 3, bg), lerp(4.6, 0.06, bg) + Math.sin(Math.PI * bg) * 1.2, lerp(0, ZB, bg), bench ? Math.max(g, 0) : 0);
+        for (i = 0; i < 6; i++) { var ap = i < 4 ? ph(4.5 + i * 0.12, 4.6 + i * 0.12) : (T > 5 ? 1 : 0); setBar(bSE[i], 3 + i * SE, 0.06, ZB + 0.45, cl(t - i) * SE * 0.94 * ap); }
+        lbBench.p.x = 3 + Math.max(g, 0.5) + 0.4; lbBench.a = ph(4.8, 4.92); setText(lbBench, 'gap ÷ standard error = ' + t.toFixed(2));
+
+        // ----- the t curve -----
+        var tg = ph(5.1, 5.6), npts = Math.floor(NP * tg), bl = Math.max(big, two), dfB = two > 0 ? 16 : 35, c8 = cn(8), cB = cn(dfB);
+        var th = function (x) { return HT * ((1 - bl) * c8 * tpdf(x, 8) + bl * cB * tpdf(x, dfB)); };
+        for (i = 0; i < NP; i++) { var t0 = -5.6 + 11.2 * i / (NP - 1); curve.set(i, tx(t0), th(t0), ZT); fill.set(i, tx(t0), th(t0), ZT - 0.02, tx(t0), 0, ZT - 0.02); }
+        setBar(tAxis, tx(-5.8), 0, ZT, (tx(5.8) - tx(-5.8)) * cl(tg * 3)); curve.done(npts); fill.done(npts);
+        for (i = 0; i < 11; i++) { tTicks[i].visible = tg > 0.3; lbT[i].a = 0.85 * cl(tg * 3 - 1); } lbAx.a = cl(tg * 3 - 1);
+        var mk = ph(5.65, 5.9), tc = Math.min(t, 5.6); setPost(tMark, tx(tc), ZT, (th(tc) + 1.2) * mk); lbTm.p.set(tx(tc), th(tc) + 1.6, ZT); lbTm.a = mk; setText(lbTm, 'our t = ' + t.toFixed(2));
+        var pa = ph(6.1, 6.4), at = Math.min(Math.abs(t), 5.6);
+        tailR.m.visible = pa > 0; tailL.m.visible = pa > 0 && !one; tailL.m.material.opacity = tailR.m.material.opacity = 0.65 * pa;
+        for (i = 0; i < 41; i++) { var tv = at + (5.6 - at) * i / 40; tailR.set(i, tx(tv), th(tv), ZT + 0.03, tx(tv), 0, ZT + 0.03); tailL.set(i, tx(-tv), th(tv), ZT + 0.03, tx(-tv), 0, ZT + 0.03); }
+        tailL.done(); tailR.done();
+        var cr = ph(6.45, 6.7); setPost(critL, tx(-cu), ZT, one ? 0 : 3.2 * cr); setPost(critR, tx(cu), ZT, 3.2 * cr); lbCrit.p.x = tx(one ? cu : -cu); lbCrit.a = cr * 0.9;
+        lbP.a = ph(6.7, 6.85); setText(lbP, 'p ' + (p < 0.001 ? '' : '= ') + ptxt(p) + (rej ? ' → reject the claim' : ' → cannot reject')); lbP.el.style.color = rej ? '#ffb454' : '#00ffff';
+
+        // ----- two kinds of mistake: the curve of t when the true mean is 8 -----
+        var al = ph(10.15, 10.5) * (1 - ph(11.0, 11.1)), dl = 2.5, c0 = crit(8, 0.025);
+        alt.m.visible = al > 0; alt.m.material.opacity = al; beta.m.visible = al > 0; beta.m.material.opacity = 0.42 * al;
+        if (al > 0) {
+            for (i = 0; i < NP; i++) { var ta = -5.6 + 11.2 * i / (NP - 1); alt.set(i, tx(ta), HT * c8 * tpdf(ta - dl, 8), ZT + 0.05); } alt.done(Math.floor(NP * cl(al * 1.5)));
+            for (i = 0; i < 61; i++) { var tb = -c0 + 2 * c0 * i / 60; beta.set(i, tx(tb), HT * c8 * tpdf(tb - dl, 8), ZT + 0.06, tx(tb), 0, ZT + 0.06); } beta.done();
+        }
+        var pow = upper(c0 - dl, 8) + upper(c0 + dl, 8);
+        lbAlt.a = al; lbBeta.a = lbPow.a = ph(10.5, 10.65) * (1 - ph(11.0, 11.1));
+        setText(lbBeta, 'missed: ' + Math.round((1 - pow) * 100) + '%'); setText(lbPow, 'caught: ' + Math.round(pow * 100) + '%');
+
+        // ----- the running numbers in the panel -----
+        var verdict = rej ? ' · reject' : ' · cannot reject';
+        if (step === 6) setStats('p-value = <b>' + ptxt(p) + '</b> <span class="dim">(below 0.05: unlikely by chance alone)</span>');
+        else if (step === 7) setStats('μ₀ = ' + num(mu0) + ' → t = <b>' + t.toFixed(2) + '</b> · p = <b>' + ptxt(p) + '</b>' + verdict);
+        else if (step === 8) setStats('8 ± ' + c2.toFixed(2) + ' × ' + SE.toFixed(0) + ' → <b>' + lo.toFixed(2) + ' to ' + hi.toFixed(2) + '</b>');
+        else if (step === 9) setStats('n = ' + (big > 0.5 ? 36 : 9) + ' → standard error ' + SE.toFixed(2) + ' → t = <b>' + t.toFixed(2) + '</b> · p ' + (p < 0.001 ? '' : '= ') + ptxt(p));
+        else if (step === 10) setStats('false alarm: 5% · missed: about ' + Math.round((1 - pow) * 100) + '% · power: about <b>' + Math.round(pow * 100) + '%</b>');
+        else if (step === 11) setStats('one-sided p = <b>' + ptxt(p) + '</b> <span class="dim">(half the two-sided value)</span>');
+        else if (step === 12) setStats('t = ' + num(g) + ' ÷ ' + SE.toFixed(2) + ' = <b>' + t.toFixed(2) + '</b> · df = 16 · p = <b>' + ptxt(p) + '</b>');
+        else if (step === 13) setStats(XB + ' = ' + XM.toFixed(2) + ' · S = ' + S.toFixed(2) + ' → t = <b>' + t.toFixed(2) + '</b> · p = ' + ptxt(p) + verdict);
+    }
+
+    // ---------- camera ----------
+    var WALL = [[7, 4.6, 15.5], [7, 3.3, 0]], BENCH = [[7, 9, 18], [7, 2, 2.8]], TD = [[7, 11, 30], [7, 1.6, 8], 2.6], ALLV = [[7, 12.5, 32], [7, 1.6, 7], 2.6];
+    var WIDE = [[9, 12.5, 34], [9, 1.6, 7], 2.6];
+    var CAM = [WALL, WALL, WALL, WALL, BENCH, TD, TD, ALLV, ALLV, ALLV, TD, TD, ALLV, WIDE];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fT", "fX", "fMu", "fS", "fN"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

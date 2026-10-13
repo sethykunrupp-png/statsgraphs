@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Normal Table to Curve</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="f of z equals one over root two pi times e to the minus z squared over two">
+            <span class="p" id="fF">f(z)</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fC">1</span></span><span class="bot"><span class="p" id="fC2">√(2π)</span></span></span> <span class="p" id="fE">e<sup style="font-size:.6em">−z²/2</sup></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- building the normal curve from its table ----------
+    var W = 2, H = 16, SQ2PI = Math.sqrt(2 * Math.PI);
+    function f(z) { return Math.exp(-z * z / 2) / SQ2PI; }
+    function Phi(z) {
+        var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2;
+        var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2;
+    }
+    var STEPS = [
+        {
+                "t": "The normal table",
+                "n": "Every statistics book has this table. Each number is the share of the bell curve lying to the left of a value of z. But where do these numbers come from?",
+                "s": "rows: z to one decimal · columns: the second decimal",
+                "on": []
+        },
+        {
+                "t": "Reading the table",
+                "n": "To look up z = 1.33, go down to row 1.3 and across to column .03. The cell says 0.9082: 90.82% of the curve lies to the left of z = 1.33.",
+                "s": "area to the left of 1.33 = <b>0.9082</b>",
+                "on": []
+        },
+        {
+                "t": "The curve has a formula",
+                "n": "The bell curve comes from one formula. Put in any z and it gives the height of the curve at that point. At z = 0 the height is 1 ÷ √(2π) = 0.3989.",
+                "s": "√(2π) = 2.5066 · f(0) = <b>0.3989</b>",
+                "on": [
+                        "fF",
+                        "fC",
+                        "fC2"
+                ]
+        },
+        {
+                "t": "A table of data for drawing",
+                "n": "Pick z from −3 to 3 in steps of 0.5. For each row, square z, halve it with a minus sign, raise e to that power, then divide by 2.5066. The last column is the height.",
+                "s": "13 rows, one per point",
+                "on": [
+                        "fE",
+                        "fC2"
+                ]
+        },
+        {
+                "t": "Plot each row as a point",
+                "n": "Each row of the data table becomes one point: z across, height up. The highlighted row is the point being placed.",
+                "s": "",
+                "on": [
+                        "fF"
+                ]
+        },
+        {
+                "t": "Join the dots",
+                "n": "Connect the 13 points. The shape is already a bell, but the straight joins make it rough.",
+                "s": "",
+                "on": [
+                        "fF"
+                ]
+        },
+        {
+                "t": "More rows, a smoother curve",
+                "n": "Use steps of 0.1 instead of 0.5: 61 rows instead of 13. With enough points the joins disappear and we have the normal curve.",
+                "s": "61 rows from −3 to 3",
+                "on": [
+                        "fF"
+                ]
+        },
+        {
+                "t": "The table is a running total",
+                "n": "Cut the area under the curve into slices 0.1 wide. Each slice has area height × 0.1. Add the slices from the far left up to z = 1.",
+                "s": "",
+                "on": [
+                        "fF"
+                ]
+        },
+        {
+                "t": "Back to the normal table",
+                "n": "Do the running total up to every z and you rebuild the normal table. The slice sums match the printed values closely. Printed tables use exact calculus instead of slices.",
+                "s": "running total of heights × 0.1 ≈ table value",
+                "on": []
+        },
+        {
+                "t": "From z to real data",
+                "n": "Real data has its own mean and standard deviation. With μ = 50 and σ = 10, each z becomes x = 50 + 10z. The curve keeps its shape. Heights divide by σ so the total area stays 1.",
+                "s": "x = 50 + 10z · f(x) = f(z) ÷ 10",
+                "on": []
+        },
+        {
+                "t": "Use it",
+                "n": "For P(X < 63.3), turn 63.3 into z = (63.3 − 50) ÷ 10 = 1.33 and read the table: 0.9082. The shaded area is the same 90.82% of the curve.",
+                "s": "P(X < 63.3) = Φ(1.33) = <b>0.9082</b>",
+                "on": []
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f4 = function (v) { return v.toFixed(4); }, mz = function (v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(1); };
+
+    // ----- the tables, shown in the card on the right -----
+    var ZC = []; for (var q = -6; q <= 6; q++) ZC.push(q / 2);
+    var SLICE = function (zEnd) { var s = 0; for (var a = -4; a < zEnd - 1e-9; a += 0.1) s += f(a + 0.05) * 0.1; return s; };
+    var TB = {
+        grid: { cap: 'Standard normal table: area to the left of z', head: ['z'].concat([0, 1, 2, 3, 4, 5].map(function (c) { return '.0' + c; })),
+                rows: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6].map(function (r) { return [r.toFixed(1)].concat([0, 1, 2, 3, 4, 5].map(function (c) { return f4(Phi(r + c / 100)); })); }) },
+        data: { cap: 'Data for drawing the curve', head: ['z', 'z²', '−z² ÷ 2', 'e<sup>−z²/2</sup>', 'height f(z)'],
+                rows: ZC.map(function (z) { return [mz(z), (z * z).toFixed(2), (z === 0 ? '0.000' : '−' + (z * z / 2).toFixed(3)), f4(Math.exp(-z * z / 2)), f4(f(z))]; }) },
+        cum: { cap: 'Running total of the slices', head: ['z', 'sum of slices', 'normal table'],
+               rows: ZC.map(function (z) { return [mz(z), f4(SLICE(z)), f4(Phi(z))]; }) },
+        x: { cap: 'From z to real values: μ = 50, σ = 10', head: ['x', 'z = (x − 50) ÷ 10', 'f(z)', 'f(x) = f(z) ÷ 10'],
+             rows: ZC.map(function (z) { return [String(50 + 10 * z), mz(z), f4(f(z)), (f(z) / 10).toFixed(5)]; }) }
+    };
+    var tbl = $('tbl'), curKind = '', trs = [], cells = [];
+    function setTable(kind) {
+        if (kind === curKind) return; curKind = kind; var t = TB[kind];
+        tbl.innerHTML = '<div class="cap">' + t.cap + '</div><table><thead><tr>' + t.head.map(function (h, i) { return '<th data-c="' + i + '">' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            t.rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+        trs = [].slice.call(tbl.querySelectorAll('tbody tr')); cells = trs.map(function (tr) { return [].slice.call(tr.children); });
+    }
+    function mark(reveal, hl, hrow, hcol, hcell) {
+        for (var i = 0; i < trs.length; i++) {
+            var cls = (i >= reveal ? 'hid' : '') + (i === hl ? ' hl' : ''); if (trs[i].className !== cls) trs[i].className = cls;
+            for (var j = 0; j < cells[i].length; j++) { var c = (i === hrow && j > 0 ? 'rh' : '') + (j === hcol && j > 0 ? ' rh' : '') + (i === hrow && j === hcol && hcell ? ' ce' : ''); if (cells[i][j].className !== c) cells[i][j].className = c; }
+        }
+    }
+
+    // ----- axes -----
+    var axis = bar('#3c6d80', 0.5); setBar(axis, -4.2 * W, 0, 0, 8.4 * W);
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), tickGeoH = new THREE.BoxGeometry(0.3, 0.04, 0.04), lbZ = [], lbXv = [], lbY = [], lbY2 = [];
+    for (var k = -4; k <= 4; k++) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(k * W, 0, 0); scene.add(tk); lbZ.push(label((k > 0 ? '+' : k < 0 ? '−' : '') + Math.abs(k), k * W, -0.5, 0, 'tick')); lbXv.push(label(String(50 + 10 * k), k * W, -0.5, 0, 'tick')); }
+    var yAx = post('#3c6d80'); setPost(yAx, -4.2 * W, 0, 0.45 * H);
+    for (k = 1; k <= 4; k++) { var t2 = new THREE.Mesh(tickGeoH, mat('#5d9ab3')); t2.position.set(-4.2 * W, k / 10 * H, 0); scene.add(t2); lbY.push(label('0.' + k, -4.2 * W - 0.6, k / 10 * H, 0, 'tick')); lbY2.push(label('0.0' + k, -4.2 * W - 0.7, k / 10 * H, 0, 'tick')); }
+    var lbAz = label('z', 4.45 * W, 0, 0, 'key'), lbAx = label('x', 4.45 * W, 0, 0, 'key'), lbAy = label('height f(z)', -4.2 * W, 0.47 * H + 0.4, 0, 'key'), lbAy2 = label('height f(x)', -4.2 * W, 0.47 * H + 0.4, 0, 'key');
+
+    // ----- the pieces of the curve -----
+    var sph = new THREE.SphereGeometry(0.17, 16, 12), small = new THREE.SphereGeometry(0.08, 10, 8), cp = [], st = [], fp = [];
+    ZC.forEach(function (z) { var p = new THREE.Mesh(sph, mat('#ffb454')); p.visible = false; scene.add(p); cp.push(p); st.push(post('#ffb454', 0.8)); });
+    for (q = 0; q <= 60; q++) { var p2 = new THREE.Mesh(small, mat('#00ffff')); p2.visible = false; p2.position.set((-3 + q / 10) * W, f(-3 + q / 10) * H, 0); scene.add(p2); fp.push(p2); }
+    var jag = polyline(13, '#ffb454'); ZC.forEach(function (z, i) { jag.set(i, z * W, f(z) * H, 0); }); jag.done(0);
+    var NP = 141, curve = polyline(NP, '#00ffff'), fill = strip(NP, '#00ffff', 0), arch = strip(NP, '#00ffff', 0), ghost = polyline(NP, '#5d9ab3', 0);
+    for (q = 0; q < NP; q++) { var zz = -3.5 + 7 * q / (NP - 1), hh = f(zz) * H; curve.set(q, zz * W, hh, 0); ghost.set(q, zz * W, hh, 0); fill.set(q, zz * W, hh, -0.02, zz * W, 0, -0.02); arch.set(q, zz * W, hh, -0.6, zz * W, hh, 0.6); }
+    curve.done(0); fill.done(); arch.done(); ghost.done();
+    var shade = strip(81, '#ffb454', 0);
+    for (q = 0; q <= 80; q++) { var zs = -3.5 + (1.33 + 3.5) * q / 80; shade.set(q, zs * W, f(zs) * H, 0.03, zs * W, 0, 0.03); } shade.done();
+    var cutL = post('#ffb454', 1.6); var f0 = post('#ffffff', 1.6);
+    var slices = []; for (q = 0; q < 50; q++) { var sb = box('#ffb454', 0.7, true); var zm = -4 + q * 0.1; sb.scale.set(0.1 * W * 0.94, Math.max(f(zm + 0.05) * H, 0.01), 1.2); sb.position.set(zm * W + 0.006, 0, -0.6); sb.visible = false; slices.push(sb); }
+    var lbShade = label('', 1.33 * W + 0.3, f(1.33) * H + 1.4, 0, 'eq'), lbF0 = label('f(0) = 1 ÷ √(2π) = 0.3989', 0.4, f(0) * H + 0.55, 0, 'key', true), lbSum = label('', 0, 0, 0, 'eq'), lbRough = label('13 points, straight joins', 2.2 * W, f(1.6) * H + 1.4, 0, ''), lbSmooth = label('61 points: smooth', 2.2 * W, f(1.6) * H + 1.4, 0, 'key');
+
+    function update() {
+        var i;
+        // ----- the table card -----
+        var kind = step <= 2 || step === 10 ? 'grid' : step <= 6 ? 'data' : step <= 8 ? 'cum' : 'x';
+        setTable(kind);
+        var hk = step === 4 ? Math.floor((T - 4.05) / 0.065) : -1, sweepZ = lerp(-4, 1, ph(7.1, 7.85));
+        if (kind === 'grid') { var on = step === 1 || step === 10; mark(7, -1, on && T >= (step === 1 ? 1.15 : 10.1) ? 3 : -1, on && T >= (step === 1 ? 1.35 : 10.2) ? 4 : -1, on && T >= (step === 1 ? 1.55 : 10.3)); }
+        else if (kind === 'data') mark(step === 3 ? Math.floor(14 * ph(3.1, 3.85)) : 13, hk >= 0 && hk < 13 ? hk : -1, -1, -1, false);
+        else if (kind === 'cum') { var rv = 0; ZC.forEach(function (z, j) { if (z <= sweepZ + 1e-6) rv = j + 1; }); mark(step === 7 ? rv : 13, step === 7 ? rv - 1 : (step === 8 ? Math.floor(ph(8.1, 8.9) * 13) : -1), -1, -1, false); }
+        else mark(Math.floor(14 * ph(9.1, 9.7)), -1, -1, -1, false);
+
+        // ----- preview of what a table number means (step 2) and the final use (step 11) -----
+        var ga = ph(1.6, 1.9) * (1 - ph(2.0, 2.12)), use = ph(10.3, 10.6);
+        ghost.m.material.opacity = 0.7 * ga;
+        shade.m.visible = ga > 0 || use > 0; shade.m.material.opacity = 0.5 * Math.max(ga, use);
+        setPost(cutL, 1.33 * W, 0.04, (f(1.33) * H + 0.6) * Math.max(ga, use)); lbShade.a = Math.max(ga, use);
+        setText(lbShade, step === 10 ? 'P(X < 63.3) = 0.9082' : '0.9082 of the area');
+        var p2a = ph(2.3, 2.6) * (1 - ph(3.0, 3.1)); setPost(f0, 0, 0.02, f(0) * H * p2a); lbF0.a = p2a;
+
+        // ----- plot the 13 rows -----
+        for (i = 0; i < 13; i++) {
+            var pk = 4.05 + i * 0.065, dp = ph(pk, pk + 0.06), z = ZC[i], h = f(z) * H, keep = 1 - ph(6.85, 7.0);
+            cp[i].visible = T >= pk && keep > 0; cp[i].position.set(z * W, lerp(h + 3, h, dp), 0); cp[i].scale.setScalar(Math.max(keep, 0.001));
+            cp[i].material.color.set(i === hk ? '#ffffff' : '#ffb454');
+            setPost(st[i], z * W, 0, h * dp * (1 - ph(5.9, 6.1)));
+        }
+        var jg = ph(5.1, 5.6); jag.done(Math.floor(13 * jg + 0.999)); jag.m.visible = jg > 0; jag.m.material.opacity = 1 - ph(6.4, 6.6);
+        lbRough.a = ph(5.5, 5.65) * (1 - ph(6.1, 6.2));
+        for (i = 0; i <= 60; i++) { var pa = ph(6.1 + i * 0.006, 6.16 + i * 0.006) * (1 - ph(6.9, 7.05)); fp[i].visible = pa > 0; fp[i].scale.setScalar(Math.max(pa, 0.001)); }
+        var cg = ph(6.55, 6.95); curve.done(Math.floor(NP * cg)); fill.m.material.opacity = 0.1 * cg; arch.m.material.opacity = 0.28 * cg; lbSmooth.a = ph(6.7, 6.85) * (1 - ph(7.0, 7.1));
+
+        // ----- slices: the running total -----
+        var sum = 0, sa = 1 - ph(8.92, 9.05), last = -1;
+        for (i = 0; i < 50; i++) { var zm = -4 + i * 0.1, vis = zm + 0.1 <= sweepZ + 1e-6 && T >= 7.1; slices[i].visible = vis && sa > 0; slices[i].material.opacity = 0.7 * sa; if (vis) { sum += f(zm + 0.05) * 0.1; last = i; } }
+        var ze = last >= 0 ? -4 + (last + 1) * 0.1 : -4;
+        lbSum.p.set(ze * W + 0.3, f(ze) * H + 1.3, 0); lbSum.a = T >= 7.15 ? sa : 0; setText(lbSum, 'sum up to z = ' + mz(ze) + ': ' + f4(sum));
+
+        // ----- z to x -----
+        var xs = ph(9.15, 9.45) * (1 - ph(10.0, 10.05)) + (step === 10 ? 1 : 0), ax = cl(xs);
+        for (i = 0; i < 9; i++) { lbZ[i].a = 0.85 * (1 - ax); lbXv[i].a = 0.85 * ax; }
+        for (i = 0; i < 4; i++) { lbY[i].a = 0.85 * (1 - ax); lbY2[i].a = 0.85 * ax; }
+        lbAz.a = 1 - ax; lbAx.a = ax; lbAy.a = 1 - ax; lbAy2.a = ax;
+
+        if (step === 7) setStats('sum of ' + (last + 1) + ' slices = <b>' + f4(sum) + '</b> · table at z = ' + mz(ze) + ': ' + f4(Phi(ze)));
+    }
+
+    // ---------- camera ----------
+    var V = [[1, 5.6, 21], [1, 3.2, 0], -3.2], V2 = [[2, 6.5, 19], [1, 3.4, 0], -3.2];
+    var CAM = [V, V, V, V, V, V, V2, V2, V, V, V];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fF", "fC", "fC2", "fE"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

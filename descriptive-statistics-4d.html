@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Descriptive Statistics in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Mean equals sum of x divided by n; median is the middle value">
+            <span class="p" id="fM" style="font-size:.85em"><span class="bar">X</span> = Σx ÷ n</span><span class="sym" style="margin:0 8px">·</span><span class="p" id="fMd" style="font-size:.85em">median = middle</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- descriptive statistics of 15 values ----------
+    var SORTED = [12, 15, 17, 18, 20, 21, 22, 22, 24, 25, 27, 28, 30, 33, 46], N = 15;
+    var ORDER = [9, 2, 13, 5, 0, 11, 7, 14, 3, 10, 6, 1, 12, 4, 8];        // ORDER[k] = rank of the k-th value collected
+    var XS = 0.32, XC = 25, wx = function (v) { return (v - XC) * XS; }, RX = function (r) { return (r - 7) * 0.9; }, RY = 2.8;
+    var BZ = 0.6, BY = -2.4;                                                            // depth of the box plot, in front of the dot plot
+    function med(a) { var n = a.length, m = Math.floor(n / 2); return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+    function stats(v) {
+        var s = v.slice().sort(function (a, b) { return a - b; }), n = s.length, mean = s.reduce(function (a, b) { return a + b; }) / n;
+        var h = Math.floor(n / 2), q1 = med(s.slice(0, h)), q3 = med(s.slice(n % 2 ? h + 1 : h)), iqr = q3 - q1;
+        var lo = q1 - 1.5 * iqr, hi = q3 + 1.5 * iqr, inside = s.filter(function (x) { return x >= lo && x <= hi; });
+        var sd = Math.sqrt(s.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (n - 1));
+        var cnt = {}, mode = s[0]; s.forEach(function (x) { cnt[x] = (cnt[x] || 0) + 1; if (cnt[x] > cnt[mode]) mode = x; });
+        return { n: n, min: s[0], max: s[n - 1], range: s[n - 1] - s[0], median: med(s), q1: q1, q3: q3, iqr: iqr, lo: lo, hi: hi, wl: inside[0], wh: inside[inside.length - 1], mean: mean, sd: sd, mode: mode };
+    }
+    var STEPS = [
+        {
+                "t": "15 values, as collected",
+                "n": "A list of numbers in the order they were recorded. Nothing stands out yet. Descriptive statistics turn a list like this into a few numbers and one picture.",
+                "s": "15 values",
+                "on": []
+        },
+        {
+                "t": "Sort them",
+                "n": "Line the values up from smallest to largest. Almost every descriptive statistic starts from the sorted list.",
+                "s": "n = 15",
+                "on": []
+        },
+        {
+                "t": "Smallest, largest and range",
+                "n": "The first and last values after sorting are the minimum and maximum. The range is the distance between them. One extreme value decides it, so it is fragile.",
+                "s": "range = 46 − 12 = <b>34</b>",
+                "on": []
+        },
+        {
+                "t": "The median: the middle one",
+                "n": "Cross off one value from each end, again and again. The one left in the middle is the median: half the values are below it and half above.",
+                "s": "median = <b>22</b>",
+                "on": [
+                        "fMd"
+                ]
+        },
+        {
+                "t": "Quartiles: the middle of each half",
+                "n": "Split the sorted list at the median. The middle of the lower half is Q1, the middle of the upper half is Q3. Between them sit the middle 50% of the data.",
+                "s": "Q1 = 18 · Q3 = 28 · IQR = <b>10</b>",
+                "on": []
+        },
+        {
+                "t": "Onto the number line",
+                "n": "Now place each value at its true position on a scale. The gaps between values become visible, and so does the lonely value far to the right.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "The box plot",
+                "n": "Draw a box from Q1 to Q3 with a line at the median, and whiskers out to the smallest and largest values. Five numbers summarise the whole list.",
+                "s": "min 12 · Q1 18 · median 22 · Q3 28 · max 46",
+                "on": []
+        },
+        {
+                "t": "Outliers: the 1.5 × IQR rule",
+                "n": "Values more than 1.5 IQR beyond the box are flagged. Here the fences are 3 and 43, so 46 is an outlier. The whisker stops at the last value inside, 33.",
+                "s": "fences: 18 − 15 = 3 and 28 + 15 = 43",
+                "on": []
+        },
+        {
+                "t": "The mean: the balance point",
+                "n": "Put the number line on a support. At the median it tips to the right, because the big values pull. Slide the support until the line balances: that point is the mean.",
+                "s": "mean = 360 ÷ 15 = <b>24</b>",
+                "on": [
+                        "fM"
+                ]
+        },
+        {
+                "t": "The mode",
+                "n": "The mode is the value that appears most often. Here 22 appears twice. It matters most for categories and for data with few distinct values.",
+                "s": "mode = <b>22</b>",
+                "on": []
+        },
+        {
+                "t": "Spread around the mean",
+                "n": "Each line is a distance from the mean. The standard deviation is their typical size: about 8.3 here. The IQR measures spread too, but ignores the extremes.",
+                "s": "S = <b>8.32</b> · IQR = 10",
+                "on": []
+        },
+        {
+                "t": "Mean versus median",
+                "n": "Slide the largest value from 46 to 80. The mean is dragged to the right and S grows, but the median does not move at all. That is why the median suits skewed data such as incomes.",
+                "s": "",
+                "on": [
+                        "fM",
+                        "fMd"
+                ]
+        },
+        {
+                "t": "Which numbers to report",
+                "n": "Roughly symmetric data without outliers: report the mean and standard deviation. Skewed data or outliers: report the median and IQR, and show a box plot. Note that software may use slightly different quartile rules.",
+                "s": "centre + spread + shape",
+                "on": [
+                        "fM",
+                        "fMd"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var g = function (x) { return Math.abs(x - Math.round(x)) < 0.005 ? String(Math.round(x)) : x.toFixed(2); };
+
+    // ----- summary table -----
+    var ROWS = [['n', 'count the values', function (s) { return s.n; }, 1], ['smallest', 'first after sorting', function (s) { return s.min; }, 2], ['largest', 'last after sorting', function (s) { return g(s.max); }, 2],
+        ['range', 'largest − smallest', function (s) { return g(s.range); }, 2], ['median', 'the middle value (8th)', function (s) { return g(s.median); }, 3], ['Q1', 'middle of the lower half', function (s) { return g(s.q1); }, 4],
+        ['Q3', 'middle of the upper half', function (s) { return g(s.q3); }, 4], ['IQR', 'Q3 − Q1', function (s) { return g(s.iqr); }, 4], ['outlier fences', 'Q1 − 1.5 IQR, Q3 + 1.5 IQR', function (s) { return g(s.lo) + ' to ' + g(s.hi); }, 7],
+        ['mean', 'sum ÷ n', function (s) { return s.mean.toFixed(2); }, 8], ['mode', 'most frequent value', function (s) { return g(s.mode); }, 9], ['std. deviation S', '√(Σ(x − X̄)² ÷ (n − 1))', function (s) { return s.sd.toFixed(2); }, 10]];
+    $('tbl').innerHTML = '<div class="cap">Summary of the data</div><table><thead><tr><th>statistic</th><th>how</th><th>value</th></tr></thead><tbody>' + ROWS.map(function () { return '<tr><td></td><td></td><td></td></tr>'; }).join('') + '</tbody></table>';
+    var trs = [].slice.call($('tbl').querySelectorAll('tbody tr'));
+    ROWS.forEach(function (r, i) { trs[i].children[0].textContent = r[0]; trs[i].children[1].textContent = r[1]; });
+    var HL = { 1: [0], 2: [1, 2, 3], 3: [4], 4: [5, 6, 7], 6: [1, 5, 4, 6, 2], 7: [8], 8: [9, 4], 9: [10], 10: [11], 11: [9, 4, 11, 2, 3] };
+
+    // ----- axis -----
+    var axis = bar('#3c6d80', 0.5), ticks = [];
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04);
+    for (var v = 0; v <= 85; v += 5) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); scene.add(tk); ticks.push({ v: v, m: tk, lb: label(String(v), 0, 0, 0, 'tick') }); }
+
+    // ----- dots -----
+    var COLS = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff'];
+    var sph = new THREE.SphereGeometry(0.24, 18, 12), dots = [];
+    for (var k = 0; k < N; k++) { var r = ORDER[k], m = new THREE.Mesh(sph, mat(COLS[k % 6])); scene.add(m); dots.push({ m: m, rank: r, base: COLS[k % 6], lb: label(String(SORTED[r]), 0, 0, 0, 'tick') }); }
+    var lbRange = label('', 0, RY - 1.2, 0, 'eq'), lbMid = label('', RX(7), RY + 1.0, 0, 'key'), lbQ1 = label('Q1 = 18', RX(3), RY + 1.0, 0, 'key'), lbQ3 = label('Q3 = 28', RX(11), RY + 1.0, 0, 'key');
+    var brL = bar('#4dd2ff', 0.8), brU = bar('#5cff9d', 0.8);
+    // markers, box plot, fences, fulcrum, deviations
+    var mkQ1 = post('#4dd2ff', 1.3), mkMd = post('#ffb454', 1.6), mkQ3 = post('#5cff9d', 1.3);
+    var boxP = box('#4dd2ff', 0.35, true), medP = post('#ffb454', 2.2), whL = bar('#ffffff', 1.2), whR = bar('#ffffff', 1.2), capL = post('#ffffff', 1.2), capR = post('#ffffff', 1.2);
+    var fenL = post('#ff5c8a', 1), fenR = post('#ff5c8a', 1), lbFen = label('', 0, BY + 1.75, BZ, ''), lbOut = label('outlier', 0, BY + 1.1, BZ, 'eq'), outDot = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), mat('#ff5c8a')); scene.add(outDot);
+    lbFen.el.style.color = '#ff8fae'; lbOut.el.style.color = '#ff8fae';
+    var lbBox = [label('min', 0, BY - 0.5, BZ, 'tick'), label('Q1', 0, BY - 0.5, BZ, 'tick'), label('median', 0, BY - 0.5, BZ, 'tick'), label('Q3', 0, BY - 0.5, BZ, 'tick'), label('max', 0, BY - 0.5, BZ, 'tick')];
+    var ful = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.8, 3), mat('#ffb454', 0.9)); scene.add(ful);
+    var lbBal = label('', 0, -1.3, 0, 'key'), meanL = post('#00ffff', 1.4), lbMean = label('', 0, 0, 0, 'key'), lbMode = label('', 0, 0, 0, 'eq');
+    var devs = []; for (k = 0; k < N; k++) devs.push(bar('#ffffff', 0.9));
+    var sRul = bar('#ffffff', 1.6), lbS = label('', 0, 0, 0, 'key', true);
+
+    function update() {
+        var i, k;
+        // ----- live data: the largest value slides out in step 12 -----
+        var vals = SORTED.slice(); vals[14] = lerp(lerp(46, 80, ph(11.15, 11.85)), 46, ph(12.05, 12.4)); var st = stats(vals);
+        var s0 = stats(SORTED);
+        // ----- table -----
+        var hl = HL[step] || [];
+        for (i = 0; i < ROWS.length; i++) {
+            var shown = step >= ROWS[i][3] || step === 12, c0 = (shown ? '' : 'hid') + (hl.indexOf(i) >= 0 ? ' hl' : '');
+            if (trs[i].className !== c0) trs[i].className = c0;
+            var val = String(ROWS[i][2](st)); if (trs[i].children[2].textContent !== val) trs[i].children[2].textContent = val;
+        }
+        // ----- axis and its tilt (balance) -----
+        var axA = ph(5.05, 5.3), fx = lerp(wx(s0.median), wx(st.mean), ph(8.5, 8.95)), tilt = (ph(8.15, 8.35) - ph(8.5, 8.95)) * -0.07 * (1 - ph(9.0, 9.05));
+        var TY = function (x) { return (x - fx) * Math.tan(tilt); };
+        setBar(axis, wx(-1), TY(wx(42)) * 0, 0, wx(86) - wx(-1)); axis.rotation.z = tilt; axis.position.y = TY(axis.position.x); axis.visible = axA > 0;
+        ticks.forEach(function (t) { var x = wx(t.v); t.m.position.set(x, TY(x), 0); t.m.visible = axA > 0; t.lb.p.set(x, TY(x) - 0.5, 0); t.lb.a = 0.85 * axA; });
+        // ----- dots: collected order → sorted row → number line -----
+        var srt = ph(1.1, 1.6), drop = ph(5.1, 5.6), dup = {};
+        for (k = 0; k < N; k++) {
+            var d = dots[k], r = d.rank, v = vals[r], a0 = ph(0.05 + k * 0.03, 0.18 + k * 0.03);
+            var n2 = dup[v] || 0; dup[v] = n2 + 1;
+            var xr = lerp(RX(k), RX(r), srt), yr = RY + Math.sin(Math.PI * srt) * (k % 2 ? 0.8 : -0.8), xl = wx(v), yl = 0.3 + n2 * 0.5;
+            var x = lerp(xr, xl, drop), y = lerp(yr, yl + TY(xl), drop) + Math.sin(Math.PI * drop) * 1.0;
+            d.m.position.set(x, y, 0); d.m.visible = a0 > 0; d.m.scale.setScalar(Math.max(a0, 0.001));
+            // colours: median counting, halves, mode, outlier
+            var col = d.base;
+            if (step === 3 || (step === 4 && T < 4.1)) { var pair = Math.min(r, 14 - r), outT = 3.1 + pair * 0.08; if (r !== 7 && T > outT) col = '#2a4a57'; if (r === 7 && T > 3.65) col = '#ffb454'; }
+            if (step === 4) col = r < 7 ? (r === 3 ? '#ffffff' : '#4dd2ff') : r > 7 ? (r === 11 ? '#ffffff' : '#5cff9d') : '#ffb454';
+            if (step === 9 && v === st.mode) col = '#ffb454';
+            if ((step === 7 || step === 11) && (v < st.lo || v > st.hi)) col = '#ff5c8a';
+            d.m.material.color.set(col);
+            d.lb.p.set(x, y - 0.55, 0); d.lb.a = a0 * (1 - ph(5.0, 5.15)) * 0.95;
+        }
+        // range, median, quartiles on the sorted row
+        var ra = ph(2.2, 2.4) * (1 - ph(3.0, 3.05)); lbRange.p.x = 0; lbRange.a = ra; setText(lbRange, 'range = largest − smallest = 46 − 12 = 34');
+        lbMid.a = ph(3.65, 3.8) * (1 - ph(5.05, 5.15)); setText(lbMid, 'median = 22 (7 values on each side)');
+        var qa = ph(4.25, 4.45) * (1 - ph(5.05, 5.15)); lbQ1.a = lbQ3.a = qa;
+        setBar(brL, RX(0) - 0.3, RY - 0.65, 0, (RX(6) - RX(0) + 0.6) * ph(4.1, 4.3) * (1 - ph(5.0, 5.05))); setBar(brU, RX(8) - 0.3, RY - 0.65, 0, (RX(14) - RX(8) + 0.6) * ph(4.1, 4.3) * (1 - ph(5.0, 5.05)));
+        // markers on the number line
+        var ma = ph(5.6, 5.85) * (1 - ph(6.05, 6.15));
+        setPost(mkQ1, wx(st.q1), 0, 2.2 * ma); setPost(mkMd, wx(st.median), 0, 2.4 * ma); setPost(mkQ3, wx(st.q3), 0, 2.2 * ma);
+        // box plot
+        var bp = ph(6.1, 6.6), out = ph(7.15, 7.5), wh = lerp(st.max, st.wh, step >= 7 ? out : 0);
+        boxP.visible = bp > 0; boxP.scale.set(Math.max((wx(st.q3) - wx(st.q1)) * bp, 0.01), 0.9, 1.2); boxP.position.set(wx(st.q1), BY, BZ - 0.6);
+        setPost(medP, wx(st.median), BZ, 0.95 * bp, BY); setBar(whL, wx(st.min), BY + 0.45, BZ, (wx(st.q1) - wx(st.min)) * bp); setBar(whR, wx(st.q3), BY + 0.45, BZ, (wx(wh) - wx(st.q3)) * bp);
+        setPost(capL, wx(st.min), BZ, 0.6 * bp, BY + 0.15); setPost(capR, wx(wh), BZ, 0.6 * bp, BY + 0.15);
+        [st.min, st.q1, st.median, st.q3, wh].forEach(function (x, j) { lbBox[j].p.x = wx(x); lbBox[j].a = 0.9 * bp; });
+        setText(lbBox[4], out > 0.5 ? 'max (inside fence)' : 'max');
+        setPost(fenL, wx(Math.max(st.lo, -0.5)), BZ, 1.6 * out, BY - 0.2); setPost(fenR, wx(st.hi), BZ, 1.6 * out, BY - 0.2); lbFen.p.x = wx(st.hi); lbFen.a = out; setText(lbFen, 'fence ' + g(st.hi));
+        outDot.visible = out > 0 && st.max > st.hi; outDot.position.set(wx(st.max), BY + 0.45, BZ); lbOut.p.x = wx(st.max); lbOut.a = out * (st.max > st.hi ? 1 : 0);
+        // mean as balance point
+        var fa = ph(8.1, 8.25);
+        ful.visible = fa > 0; ful.position.set(fx, -0.45, 0); ful.scale.setScalar(Math.max(fa, 0.001));
+        lbBal.p.x = fx; lbBal.a = fa; setText(lbBal, T < 8.5 ? 'resting on the median (22): it tips right' : T < 8.95 ? 'sliding the support…' : 'balanced at the mean = ' + st.mean.toFixed(2));
+        var mla = ph(8.9, 9.05); setPost(meanL, wx(st.mean), 0, 3.6 * mla); lbMean.p.set(wx(st.mean), 4.0, 0); lbMean.a = mla; setText(lbMean, 'mean ' + st.mean.toFixed(2));
+        if (T > 9.05) { ful.position.x = wx(st.mean); lbBal.p.x = wx(st.mean); lbBal.a = fa * (1 - ph(10.0, 10.1)); setText(lbBal, 'balanced at the mean = ' + st.mean.toFixed(2)); }
+        lbMode.p.set(wx(st.mode), 1.75, 0); lbMode.a = ph(9.15, 9.3) * (1 - ph(10.0, 10.1)); setText(lbMode, 'mode = ' + g(st.mode) + ' (appears twice)');
+        // spread: deviations and S
+        var dv = ph(10.1, 10.45) * (1 - ph(11.0, 11.1)), dup2 = {};
+        for (k = 0; k < N; k++) { var vv = vals[dots[k].rank], nn = dup2[vv] || 0; dup2[vv] = nn + 1; var len = (wx(vv) - wx(st.mean)) * dv; setBar(devs[k], Math.min(wx(st.mean), wx(st.mean) + len), 0.3 + nn * 0.5, 0.02, Math.abs(len)); devs[k].material.color.set(vv < st.mean ? '#4dd2ff' : '#ffb454'); }
+        var sa = ph(10.5, 10.75) * (1 - ph(12.0, 12.1)); setBar(sRul, wx(st.mean), 3.3, 0, st.sd * XS * sa); lbS.p.set(wx(st.mean + st.sd) + 0.25, 3.3, 0); lbS.a = sa; setText(lbS, 'S = ' + st.sd.toFixed(2));
+
+        if (step === 11) setStats('largest value ' + g(st.max) + ' → mean <b>' + st.mean.toFixed(2) + '</b> · median <b>' + g(st.median) + '</b> · S ' + st.sd.toFixed(2));
+    }
+
+    // ---------- camera ----------
+    var R = [[0.3, 4.4, 17], [0.3, 4.6, 0], 0], V = [[1.2, 4.6, 15], [1.2, 1.9, 0.6], -2.6], VB = [[1.5, 3.4, 16.5], [1.4, 0.7, 0.3], -2.6], WIDE = [[5.5, 7, 24], [5.5, 2.4, 1], -2.6];
+    var CAM = [R, R, R, R, R, V, VB, VB, V, V, V, WIDE, VB];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fM", "fMd"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

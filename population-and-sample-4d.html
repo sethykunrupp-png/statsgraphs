@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Population and Sample</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.pt td, #tbl table.pt th { text-align: left; white-space: normal; }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Sample statistics estimate population parameters">
+            <span class="p" id="fS" style="font-size:.9em"><span class="bar">X</span>, S</span><span class="sym" style="margin:0 8px">→</span><span class="p" id="fP" style="font-size:.9em">μ, σ</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- population and sample, and the tests that compare them ----------
+    var XV = function (v) { return (v - 50) * 0.18; }, SIG = 10, NS_ = 10, FZ = 3.2, MZ = 3.2;
+    var r0 = rng(17), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    var STEPS = [
+        {
+                "t": "The population",
+                "n": "Everyone we want to know about, drawn as a crowd of dots. Its mean μ and standard deviation σ are parameters: fixed numbers that describe the whole crowd.",
+                "s": "μ = 50 · σ = 10",
+                "on": [
+                        "fP"
+                ]
+        },
+        {
+                "t": "We rarely see all of it",
+                "n": "Real populations are huge: every taxpayer, every household, every firm. Measuring everyone is too slow or too costly, so μ and σ are usually unknown.",
+                "s": "",
+                "on": [
+                        "fP"
+                ]
+        },
+        {
+                "t": "Draw a random sample",
+                "n": "Pick 10 members at random. Every member has the same chance to be picked, so the sample is a fair miniature of the population.",
+                "s": "n = 10",
+                "on": []
+        },
+        {
+                "t": "Sample statistics",
+                "n": "From the sample we compute X̄ and S. These are statistics: our best guesses for μ and σ.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Another sample, other numbers",
+                "n": "Draw again and the statistics change. The parameters do not. This wobble from sample to sample is sampling variability.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Many samples: the sampling distribution",
+                "n": "Collect the means of 60 samples. They pile up around μ, much tighter than the population itself. Their spread is the standard error, σ ÷ √n.",
+                "s": "standard error = 10 ÷ √10 = <b>3.16</b>",
+                "on": []
+        },
+        {
+                "t": "Back to the population: confidence intervals",
+                "n": "Each sample gives an interval X̄ ± t × SE. About 95% of such intervals catch the true μ; a few miss, in red. This is how one sample speaks about the whole population.",
+                "s": "95% of intervals contain μ",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Test 1: one sample against a claim",
+                "n": "A report claims the population mean is 57. We have one sample of 10. Is our sample mean far enough from 57 to doubt the claim? This is the one-sample t test.",
+                "s": "H₀: μ = 57",
+                "on": []
+        },
+        {
+                "t": "One-sample t: the calculation",
+                "n": "Measure the gap between X̄ and the claim in standard errors. The standard error is S ÷ √n. The count of standard errors is t.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "One-sample t: the decision",
+                "n": "Place t on the t curve with n − 1 = 9 degrees of freedom. The shaded tails are the p-value: the chance of a gap at least this big if the claim were true.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Test 2: two separate populations",
+                "n": "Two populations, a sample from each. Do their means differ? H₀ says the two population means are equal. This is the two-sample t test.",
+                "s": "H₀: μA = μB",
+                "on": []
+        },
+        {
+                "t": "Two-sample t: the calculation",
+                "n": "Take the gap between the two sample means and divide by the standard error of that gap. The pooled S combines the spread of both samples.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Two-sample t: the decision",
+                "n": "Compare t with the t curve on 10 + 10 − 2 = 18 degrees of freedom. A small p-value means the two populations really differ.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Test 3: the same people, twice",
+                "n": "Measure the same 8 people before and after. Each line is one person. Because each person is their own comparison, person-to-person differences drop out. This is the paired t test.",
+                "s": "H₀: mean difference = 0",
+                "on": []
+        },
+        {
+                "t": "Paired t: the calculation",
+                "n": "Turn each pair into one number: after − before. Now it is a one-sample t test of the mean difference against 0.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Paired t: the decision",
+                "n": "Compare t with the t curve on 8 − 1 = 7 degrees of freedom.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Test 4: three or more populations",
+                "n": "Three populations, three samples. Running three separate t tests would pile up false alarms, so one-way ANOVA tests all the means at once.",
+                "s": "H₀: μA = μB = μC",
+                "on": []
+        },
+        {
+                "t": "ANOVA: the calculation",
+                "n": "Compare variation between the group means with variation within the groups, each divided by its degrees of freedom. F is their ratio.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "ANOVA: the decision",
+                "n": "Compare F with the F curve on 2 and 27 degrees of freedom. Only the right tail counts. A significant F says at least one mean differs; a post-hoc test then says which.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Test 5: categories, not numbers",
+                "n": "Now each member answers yes (amber) or no. A survey office claims 40% say yes. The sample proportion p̂ estimates the population proportion p.",
+                "s": "H₀: p = 0.40",
+                "on": []
+        },
+        {
+                "t": "z for a proportion: the calculation",
+                "n": "Measure the gap between p̂ and the claimed 0.40 in standard errors, where the standard error is √(p(1 − p) ÷ n).",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "z for a proportion: the decision",
+                "n": "Compare z with the normal curve: beyond ±1.96 is significant at 5%. For counts across several categories or groups, the chi-square test plays the same role.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        },
+        {
+                "t": "Choosing the test",
+                "n": "Ask two questions. What is being compared: one sample with a value, two groups, pairs, or many groups? And is the data numbers or categories? The answers pick the test.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fP"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    function vis(a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); }
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sd(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / (a.length - 1)); }
+
+    // ----- three populations, drawn as bell-shaped crowds of dots -----
+    var GRPS = [{ mu: 50, cz: -3.4, col: '#4dd2ff', name: 'population A' }, { mu: 58, cz: -1.0, col: '#ffb454', name: 'population B' }, { mu: 53, cz: -5.8, col: '#b388ff', name: 'population C' }];
+    var NP = 520;
+    GRPS.forEach(function (P, pi) {
+        P.v = []; P.pos = []; P.yes = [];
+        var pos = new Float32Array(NP * 3), colA = new Float32Array(NP * 3), base = new THREE.Color(P.col);
+        for (var i = 0; i < NP; i++) {
+            var z = gauss(), v = P.mu + SIG * z, x = XV(v), y = 0.15 + r0() * 3.2 * Math.exp(-z * z / 2), zz = P.cz + (r0() - 0.5) * 1.8;
+            P.v.push(v); P.pos.push([x, y, zz]); P.yes.push(r0() < 0.4);
+            pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = zz; colA[i * 3] = base.r; colA[i * 3 + 1] = base.g; colA[i * 3 + 2] = base.b;
+        }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(colA, 3));
+        P.cols = colA; P.geo = g;
+        P.pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, opacity: 0, depthWrite: false })); scene.add(P.pts);
+        P.muL = post(P.col, 1.2); P.lb = label('', XV(P.mu), 4.1, P.cz, 'key'); P.lb.el.style.color = P.col;
+    });
+    function pick(pi, n, seed) { var rr = rng(seed), s = []; while (s.length < n) { var k = Math.floor(rr() * NP); if (s.indexOf(k) < 0) s.push(k); } return s; }
+    var SA = [pick(0, NS_, 1), pick(0, NS_, 2), pick(0, NS_, 3)], SB = pick(1, NS_, 4), SC = pick(2, NS_, 5), SPAIR = pick(0, 8, 6), SCAT = pick(0, 50, 7);
+    var AFTER = SPAIR.map(function (k) { return GRPS[0].v[k] + 3 + gauss() * 2; });
+
+    // ----- front number line (the sample tray) -----
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), fAxis = bar('#3c6d80', 0.5), fT = [];
+    setBar(fAxis, XV(20), 0, FZ, XV(80) - XV(20));
+    for (var v = 20; v <= 80; v += 10) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(XV(v), 0, FZ); scene.add(tk); fT.push(label(String(v), XV(v), -0.45, FZ, 'tick')); }
+    // sample dots
+    var sph = new THREE.SphereGeometry(0.17, 14, 10), sdots = []; for (var i = 0; i < 60; i++) { var m = new THREE.Mesh(sph, mat('#ffffff')); m.visible = false; scene.add(m); sdots.push(m); }
+    var xbL = [post('#ffffff', 1.6), post('#ffffff', 1.6), post('#ffffff', 1.6)], lbS = [label('', 0, 0, FZ, 'eq'), label('', 0, 0, FZ, 'eq'), label('', 0, 0, FZ, 'eq')];
+    var pairL = []; for (i = 0; i < 8; i++) pairL.push(bar('#5cff9d', 0.8));
+    // many sample means, and confidence intervals
+    var MEANS = [], CIS = []; var rr2 = rng(99);
+    for (i = 0; i < 60; i++) { var s = []; for (var j = 0; j < NS_; j++) s.push(GRPS[0].v[Math.floor(rr2() * NP)]); var m0 = mean(s), s0 = sd(s); MEANS.push(m0); if (i < 20) CIS.push([m0 - 2.262 * s0 / Math.sqrt(NS_), m0 + 2.262 * s0 / Math.sqrt(NS_)]); }
+    var mdots = [], bins = {}; MEANS.forEach(function (mv) { var b = Math.round(mv / 2) * 2, n = bins[b] || 0; bins[b] = n + 1; var md = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), mat('#ffb454')); md.visible = false; scene.add(md); mdots.push({ m: md, x: XV(b) + (n % 2 ? 0.09 : -0.09), y: 0.12 + Math.floor(n / 2) * 0.2, v: mv }); });
+    var ciBars = CIS.map(function (c) { return bar(c[0] <= 50 && c[1] >= 50 ? '#5cff9d' : '#ff5c8a', 0.9); }), muFront = post('#4dd2ff', 1.2);
+    var lbM = label('', XV(64), 1.6, MZ, 'eq', true), lbCI = label('', XV(64), 1.4, MZ, 'key', true), lbBig = label('', 0, -1.25, FZ, 'key');
+    lbBig.el.style.fontSize = '17px';
+
+    // ----- table card -----
+    var tblKind = '', trs = [];
+    function buildTable(kind) {
+        if (kind === tblKind) return; tblKind = kind;
+        var rows, head, cap;
+        if (kind === 'ps') { cap = 'Population and sample'; head = ['', 'population', 'sample'];
+            rows = [['who', 'everyone of interest', 'the ones we measure'], ['size', 'N (large)', 'n = 10'], ['mean', 'μ (parameter)', 'X̄ (statistic)'], ['spread', 'σ', 'S'], ['proportion', 'p', 'p̂'], ['nature', 'fixed, usually unknown', 'known, changes with each sample']]; }
+        else { cap = 'Which test compares what?'; head = ['question', 'test'];
+            rows = [['one sample against a claimed population value', 'one-sample t (z if σ is known)'], ['two separate groups', 'two-sample t'], ['the same people measured twice', 'paired t on the differences'], ['three or more groups', 'one-way ANOVA (F)'], ['proportions or categories', 'z for proportions · chi-square']]; }
+        $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table class="pt"><thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+        trs = [].slice.call($('tbl').querySelectorAll('tbody tr'));
+    }
+    function markRows(reveal, hl) { trs.forEach(function (t, i) { var c = (i >= reveal ? 'hid' : '') + (hl.indexOf(i) >= 0 ? ' hl' : ''); if (t.className !== c) t.className = c; }); }
+
+    function oldUpdate() {
+        var i, j;
+        // ----- which populations are on stage -----
+        var showA = 1 - 0.75 * ph(1.1, 1.3) * (1 - ph(2.0, 2.1)), showB = vis(8, 9) + vis(10, 11), showC = vis(10, 11);
+        var cat = ph(11.1, 11.4) * (1 - ph(12.0, 12.1));
+        var ops = [ph(0.05, 0.6) * showA, showB, showC];
+        GRPS.forEach(function (P, pi) {
+            P.pts.material.opacity = 0.75 * ops[pi]; P.pts.visible = ops[pi] > 0.01;
+            setPost(P.muL, XV(P.mu), P.cz, 3.7 * ops[pi]); P.lb.p.set(XV(P.mu), 4.15, P.cz); P.lb.a = ops[pi];
+            setText(P.lb, (pi === 0 && ost <= 6 ? 'population: ' : P.name + ': ') + 'μ = ' + P.mu + ', σ = 10');
+        });
+        // categories: recolour population A
+        var colY = new THREE.Color('#ffb454'), colN = new THREE.Color('#4dd2ff'), A = GRPS[0];
+        for (i = 0; i < NP; i++) { var c = colN.clone().lerp(A.yes[i] ? colY : colN, cat); A.cols[i * 3] = c.r; A.cols[i * 3 + 1] = c.g; A.cols[i * 3 + 2] = c.b; }
+        A.geo.attributes.color.needsUpdate = true;
+        if (cat > 0.5) setText(A.lb, 'population: 40% say yes (p = 0.40)');
+
+        // ----- sample dots -----
+        var used = 0;
+        function fly(pi, idx, t, col, laneY, valOverride) {
+            var P = GRPS[pi], cnt = {}, out = [];
+            idx.forEach(function (k, n) {
+                var val = valOverride ? valOverride[n] : P.v[k], b = Math.round(val / 2) * 2, kk = cnt[b] || 0; cnt[b] = kk + 1;
+                var d = sdots[used++], from = P.pos[k], f = cl((t - n * 0.03) / 0.7); f = f * f * (3 - 2 * f);
+                d.visible = t > 0; d.material.color.set(col);
+                d.position.set(lerp(from[0], XV(b), f), lerp(from[1], laneY + 0.22 + kk * 0.36, f) + Math.sin(Math.PI * f) * 1.2, lerp(from[2], FZ, f));
+                out.push(val);
+            });
+            return out;
+        }
+        var lanes = [], sIdx = 0;
+        if (ost >= 2 && ost <= 3) { var t2 = ph(2.1, 2.7); lanes.push({ v: fly(0, SA[0], t2, '#ffffff', 0), col: '#ffffff', a: ph(3.1, 3.3) }); }
+        if (ost === 4) { sIdx = T < 4.36 ? 0 : T < 4.68 ? 1 : 2; var t4 = ph(4.05 + sIdx * 0.32, 4.3 + sIdx * 0.32); lanes.push({ v: fly(0, SA[sIdx], t4, '#ffffff', 0), col: '#ffffff', a: t4 }); }
+        if (ost === 7) lanes.push({ v: fly(0, SA[0], ph(7.1, 7.6), '#4dd2ff', 0), col: '#4dd2ff', a: ph(7.5, 7.6) });
+        if (ost === 8) { lanes.push({ v: fly(0, SA[0], ph(8.1, 8.6), '#4dd2ff', 0), col: '#4dd2ff', a: ph(8.5, 8.6) }); lanes.push({ v: fly(1, SB, ph(8.3, 8.8), '#ffb454', 2.2), col: '#ffb454', a: ph(8.7, 8.8), y: 2.2 }); }
+        if (ost === 10) { lanes.push({ v: fly(0, SA[0], ph(10.1, 10.6), '#4dd2ff', 0), col: '#4dd2ff', a: ph(10.5, 10.6) }); lanes.push({ v: fly(1, SB, ph(10.2, 10.7), '#ffb454', 1.6), col: '#ffb454', a: ph(10.6, 10.7), y: 1.6 }); lanes.push({ v: fly(2, SC, ph(10.3, 10.8), '#b388ff', 3.2), col: '#b388ff', a: ph(10.7, 10.8), y: 3.2 }); }
+        // paired: before and after for the same 8 people
+        var pairOn = ost === 9;
+        for (i = 0; i < 8; i++) {
+            var pa = ph(9.1 + i * 0.03, 9.5 + i * 0.03), la = ph(9.55, 9.85);
+            if (pairOn) {
+                var P0 = GRPS[0], k = SPAIR[i], fr = P0.pos[k], yl = 0.3 + i * 0.42, bx = XV(P0.v[k]), ax = XV(AFTER[i]);
+                var d1 = sdots[used++], d2 = sdots[used++];
+                d1.visible = d2.visible = pa > 0; d1.material.color.set('#4dd2ff'); d2.material.color.set('#5cff9d');
+                d1.position.set(lerp(fr[0], bx, pa), lerp(fr[1], yl, pa), lerp(fr[2], FZ, pa)); d2.position.set(lerp(bx, ax, la), yl, FZ); d2.visible = la > 0;
+                setBar(pairL[i], Math.min(bx, lerp(bx, ax, la)), yl, FZ, Math.abs(lerp(bx, ax, la) - bx)); pairL[i].material.color.set(AFTER[i] >= P0.v[k] ? '#5cff9d' : '#ff5c8a');
+            } else pairL[i].visible = false;
+        }
+        // categories: a sample of 50 in a grid
+        if (ost === 11) {
+            var yesN = 0;
+            for (i = 0; i < 50; i++) {
+                var kc = SCAT[i], fc = GRPS[0].pos[kc], tc = ph(11.4 + i * 0.006, 11.7 + i * 0.006), gx = -2.25 + (i % 10) * 0.5, gy = 0.35 + Math.floor(i / 10) * 0.5;
+                var dc = sdots[used++]; dc.visible = tc > 0; dc.material.color.set(GRPS[0].yes[kc] ? '#ffb454' : '#4dd2ff');
+                dc.position.set(lerp(fc[0], gx, tc), lerp(fc[1], gy, tc), lerp(fc[2], FZ, tc)); if (tc >= 1 && GRPS[0].yes[kc]) yesN++;
+            }
+        }
+        for (i = used; i < 60; i++) sdots[i].visible = false;
+        // sample means on the tray
+        for (i = 0; i < 3; i++) {
+            var L = lanes[i];
+            if (L && L.a > 0) { var mx = mean(L.v), sx = sd(L.v); setPost(xbL[i], XV(mx), FZ, 1.3, L.y || 0); xbL[i].material.color.set(L.col); lbS[i].p.set(XV(mx), (L.y || 0) + 1.6, FZ); lbS[i].a = L.a; lbS[i].el.style.color = L.col;
+                setText(lbS[i], 'X̄ = ' + f1(mx) + (lanes.length === 1 ? ' · S = ' + f1(sx) : '')); }
+            else { xbL[i].visible = false; lbS[i].a = 0; }
+        }
+        fAxis.visible = true; fT.forEach(function (l) { l.a = 0.85 * ph(1.9, 2.1); });
+
+        // ----- sampling distribution and confidence intervals -----
+        var ma = vis(5, 6);
+        mdots.forEach(function (d, n) { var t = ph(5.1 + n * 0.01, 5.25 + n * 0.01) * (1 - ph(6.0, 6.1)); d.m.visible = t > 0; d.m.position.set(d.x, lerp(4, d.y, t), MZ); });
+        lbM.a = ph(5.7, 5.85) * (1 - ph(6.0, 6.1)); setText(lbM, '60 sample means · spread = σ ÷ √n = 3.16');
+        var miss = 0;
+        CIS.forEach(function (c, n) { var t = ph(6.1 + n * 0.03, 6.25 + n * 0.03) * (1 - ph(7.0, 7.1)); setBar(ciBars[n], XV(c[0]), 0.2 + n * 0.22, MZ, (XV(c[1]) - XV(c[0])) * t); if (!(c[0] <= 50 && c[1] >= 50)) miss++; });
+        setPost(muFront, XV(50), MZ, 4.8 * vis(6, 7)); lbCI.a = ph(6.8, 6.9) * (1 - ph(7.0, 7.1)); setText(lbCI, (20 - miss) + ' of 20 intervals catch μ = 50');
+
+        // ----- captions -----
+        var cap = { 1: 'N is huge: measuring everyone is too slow or too costly', 3: 'statistics estimate parameters: X̄ → μ, S → σ', 7: 't = (X̄ − μ₀) ÷ (S ÷ √n)', 8: 't = (X̄₁ − X̄₂) ÷ SE of the difference', 9: 'test the differences: their mean against 0', 10: 'F = variation between ÷ variation within', 11: 'p̂ = ' + (yesN || 0) + ' ÷ 50 = ' + ((yesN || 0) / 50).toFixed(2) + ' · compare with p = 0.40' }[ost] || '';
+        lbBig.a = cap ? ph(ost + 0.5, ost + 0.62) : 0; setText(lbBig, cap);
+
+        // ----- table -----
+        if (ost <= 6) { buildTable('ps'); markRows(ost === 0 ? 1 : ost === 1 ? 2 : ost <= 2 ? 2 : 6, { 0: [0], 1: [1], 2: [0, 1], 3: [2, 3], 4: [5], 5: [2], 6: [2] }[ost] || []); }
+        else { buildTable('tests'); markRows(ost === 12 ? 5 : ost - 6, ost === 12 ? [] : [ost - 7]); }
+
+        if (ost === 4) { var ms = []; for (j = 0; j <= sIdx; j++) ms.push(f1(mean(SA[j].map(function (k) { return GRPS[0].v[k]; })))); setStats('sample means: ' + ms.join(', ') + ' · μ stays 50'); }
+    }
+
+    // ---------- worked calculations and decisions for each test ----------
+    var MU0 = 57, ost = 0;
+    function tpdf(x, df) { return Math.pow(1 + x * x / df, -(df + 1) / 2); }
+    var NORMC = {};
+    function cn(df) { if (!NORMC[df]) { var a = 0, h = 0.02; for (var q = 0; q < 4000; q++) a += (tpdf(q * h, df) + tpdf((q + 1) * h, df)) / 2 * h; NORMC[df] = 0.5 / a; } return NORMC[df]; }
+    function tUpper(x, df) { var ax = Math.abs(x), n = 300, h = ax / n, a = 0; for (var q = 0; q < n; q++) a += (tpdf(q * h, df) + tpdf((q + 1) * h, df)) / 2 * h; return 0.5 - cn(df) * a * (x >= 0 ? 1 : -1); }
+    function tCrit(df) { var lo = 0, hi = 20; for (var q = 0; q < 40; q++) { var mid = (lo + hi) / 2; if (tUpper(mid, df) > 0.025) lo = mid; else hi = mid; } return (lo + hi) / 2; }
+    function Phi(z) { var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2; var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2; }
+    var pt = function (p) { return p < 0.001 ? '< 0.001' : p.toFixed(3); };
+    var vA = SA[0].map(function (k) { return GRPS[0].v[k]; }), vB = SB.map(function (k) { return GRPS[1].v[k]; }), vC = SC.map(function (k) { return GRPS[2].v[k]; });
+    var vBefore = SPAIR.map(function (k) { return GRPS[0].v[k]; }), vD = AFTER.map(function (a, i) { return a - vBefore[i]; });
+    var yesCount = SCAT.filter(function (k) { return GRPS[0].yes[k]; }).length;
+    var TESTS = [];
+    (function () {
+        var m = mean(vA), s1 = sd(vA), se = s1 / Math.sqrt(10), t = (m - MU0) / se, p = 2 * tUpper(Math.abs(t), 9);
+        TESTS.push({ name: 'One-sample t test', kind: 't', df: 9, stat: t, p: p, crit: tCrit(9), rows: [['claimed mean μ₀', String(MU0)], ['sample mean X̄', f2(m)], ['sample SD S', f2(s1)], ['n', '10'], ['standard error = S ÷ √n', f2(se)], ['t = (X̄ − μ₀) ÷ SE', f2(t)], ['degrees of freedom = n − 1', '9']], cap: 't = (' + f1(m) + ' − 57) ÷ ' + f2(se) + ' = ' + f2(t) });
+        var m1 = mean(vA), m2 = mean(vB), sa = sd(vA), sb = sd(vB), sp = Math.sqrt((9 * sa * sa + 9 * sb * sb) / 18), se2 = sp * Math.sqrt(0.2), t2 = (m1 - m2) / se2, p2 = 2 * tUpper(Math.abs(t2), 18);
+        TESTS.push({ name: 'Two-sample t test', kind: 't', df: 18, stat: t2, p: p2, crit: tCrit(18), rows: [['mean of sample A', f2(m1)], ['mean of sample B', f2(m2)], ['S of A · S of B', f2(sa) + ' · ' + f2(sb)], ['pooled S', f2(sp)], ['SE of the gap = pooled S × √(1/10 + 1/10)', f2(se2)], ['t = (X̄₁ − X̄₂) ÷ SE', f2(t2)], ['degrees of freedom = 10 + 10 − 2', '18']], cap: 't = (' + f1(m1) + ' − ' + f1(m2) + ') ÷ ' + f2(se2) + ' = ' + f2(t2) });
+        var md = mean(vD), sdd = sd(vD), se3 = sdd / Math.sqrt(8), t3 = md / se3, p3 = 2 * tUpper(Math.abs(t3), 7);
+        TESTS.push({ name: 'Paired t test', kind: 't', df: 7, stat: t3, p: p3, crit: tCrit(7), rows: [['differences after − before', vD.map(function (d) { return d.toFixed(1); }).join(', ')], ['mean difference d̄', f2(md)], ['SD of differences', f2(sdd)], ['n pairs', '8'], ['standard error = S ÷ √8', f2(se3)], ['t = d̄ ÷ SE', f2(t3)], ['degrees of freedom = 8 − 1', '7']], cap: 't = ' + f2(md) + ' ÷ ' + f2(se3) + ' = ' + f2(t3) });
+        var ms = [mean(vA), mean(vB), mean(vC)], gm = (ms[0] + ms[1] + ms[2]) / 3, ssb = 0, ssw = 0;
+        [vA, vB, vC].forEach(function (g, j) { ssb += 10 * (ms[j] - gm) * (ms[j] - gm); g.forEach(function (x) { ssw += (x - ms[j]) * (x - ms[j]); }); });
+        var msb = ssb / 2, msw = ssw / 27, F = msb / msw, p4 = Math.pow(1 + 2 * F / 27, -13.5), fc = 13.5 * (Math.pow(0.05, -2 / 27) - 1);
+        TESTS.push({ name: 'One-way ANOVA', kind: 'F', d2: 27, stat: F, p: p4, crit: fc, rows: [['group means A · B · C', ms.map(f1).join(' · ')], ['grand mean', f2(gm)], ['SS between · SS within', f1(ssb) + ' · ' + f1(ssw)], ['MS between = SSB ÷ 2', f2(msb)], ['MS within = SSW ÷ 27', f2(msw)], ['F = MSB ÷ MSW', f2(F)], ['degrees of freedom', '2 and 27']], cap: 'F = ' + f2(msb) + ' ÷ ' + f2(msw) + ' = ' + f2(F) });
+        var ph_ = yesCount / 50, se5 = Math.sqrt(0.4 * 0.6 / 50), z = (ph_ - 0.4) / se5, p5 = 2 * (1 - Phi(Math.abs(z)));
+        TESTS.push({ name: 'z test for a proportion', kind: 'z', stat: z, p: p5, crit: 1.96, rows: [['claimed proportion p₀', '0.40'], ['yes answers in the sample', yesCount + ' of 50'], ['sample proportion p̂', ph_.toFixed(2)], ['standard error = √(p₀(1 − p₀) ÷ n)', se5.toFixed(4)], ['z = (p̂ − p₀) ÷ SE', f2(z)]], cap: 'z = (' + ph_.toFixed(2) + ' − 0.40) ÷ ' + se5.toFixed(4) + ' = ' + f2(z) });
+    })();
+    TESTS.forEach(function (t) { var rej = t.kind === 'F' ? t.stat > t.crit : Math.abs(t.stat) > t.crit; t.rej = rej; t.rows.push(['p-value', pt(t.p)]); t.rows.push(['decision at 5%', rej ? 'reject H₀' : 'do not reject H₀']); });
+
+    // ----- curve panel in front of the tray -----
+    var PY = -3.0, PZ = 5.8, PW = 4.5, PH = 3.0, NPc = 161;
+    var pcur = polyline(NPc, '#00ffff'), pfill = strip(NPc, '#00ffff', 0), ptL = strip(41, '#ffb454', 0), ptR = strip(41, '#ffb454', 0), pax = bar('#3c6d80', 0.5), pcutL = post('#ffffff', 1.1), pcutR = post('#ffffff', 1.1), pmark = post('#ffb454', 1.8);
+    var lbPm = label('', 0, 0, PZ, 'eq'), lbPp = label('', 0, PY - 0.75, PZ + 0.6, 'key'), lbPc = label('5% cut-off', 0, 0, PZ, ''), lbPa = label('', PW + 0.5, PY, PZ, 'key', true); lbPp.el.style.fontSize = '17px';
+    var pTick = []; for (var q0 = 0; q0 < 9; q0++) pTick.push(label('', 0, PY - 0.4, PZ + 0.3, 'tick'));
+    var PG = new THREE.Group(); PG.position.y = PY; scene.add(PG); [pcur, pfill, ptL, ptR].forEach(function (o) { scene.remove(o.m); PG.add(o.m); }); [pax, pcutL, pcutR, pmark].forEach(function (o) { scene.remove(o); PG.add(o); });
+    var claimL = post('#ff5c8a', 1.4), gapB = bar('#ffb454', 1.6), lbClaim = label('claim μ₀ = 57', XV(57) + 0.2, 2.3, FZ, '', true); lbClaim.el.style.color = '#ff8fae';
+    function panel(t, a) {
+        var dom = t.kind === 'F' ? [0, 8] : [-4.5, 4.5], X = function (v) { return -PW + (v - dom[0]) / (dom[1] - dom[0]) * 2 * PW; };
+        var pdf = t.kind === 't' ? function (x) { return cn(t.df) * tpdf(x, t.df); } : t.kind === 'z' ? function (x) { return Math.exp(-x * x / 2) / Math.sqrt(2 * Math.PI); } : function (x) { return Math.pow(1 + 2 * x / t.d2, -t.d2 / 2 - 1); };
+        var top = t.kind === 'F' ? 1 : pdf(0), Hh = function (x) { return pdf(x) / top * PH; };
+        for (var i = 0; i < NPc; i++) { var x = dom[0] + (dom[1] - dom[0]) * i / (NPc - 1); pcur.set(i, X(x), Hh(x), PZ); pfill.set(i, X(x), Hh(x), PZ - 0.02, X(x), 0, PZ - 0.02); }
+        var n = Math.floor(NPc * cl(a * 1.6)); pcur.done(n); pfill.done(n); pcur.m.visible = a > 0; pfill.m.material.opacity = 0.12 * a; setBar(pax, -PW - 0.2, 0, PZ, (2 * PW + 0.4) * cl(a * 3));
+        var ticks = t.kind === 'F' ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+        ticks.forEach(function (v, i) { pTick[i].p.x = X(v); pTick[i].a = 0.8 * a; setText(pTick[i], (v > 0 && t.kind !== 'F' ? '+' : v < 0 ? '−' : '') + Math.abs(v)); });
+        lbPa.a = a; setText(lbPa, t.kind === 'F' ? 'F' : t.kind);
+        var s = Math.max(Math.min(t.stat, dom[1] - 0.05), dom[0] + 0.05), ma = cl((a - 0.35) / 0.2), ta = cl((a - 0.5) / 0.2), ca = cl((a - 0.6) / 0.2);
+        setPost(pmark, X(s), PZ, (Hh(s) + 1.0) * ma); lbPm.p.set(X(s), PY + Hh(s) + 1.35, PZ); lbPm.a = ma; setText(lbPm, (t.kind === 'F' ? 'F' : t.kind) + ' = ' + f2(t.stat));
+        var two = t.kind !== 'F', as = Math.abs(t.stat);
+        ptR.m.visible = ptL.m.visible = ta > 0; ptR.m.material.opacity = ptL.m.material.opacity = 0.65 * ta; ptL.m.visible = two && ta > 0;
+        for (i = 0; i < 41; i++) { var r1 = two ? Math.min(as, dom[1]) : Math.min(t.stat, dom[1]), xr = r1 + (dom[1] - r1) * i / 40; ptR.set(i, X(xr), Hh(xr), PZ + 0.03, X(xr), 0, PZ + 0.03); if (two) ptL.set(i, X(-xr), Hh(-xr), PZ + 0.03, X(-xr), 0, PZ + 0.03); }
+        ptR.done(); ptL.done();
+        setPost(pcutR, X(t.crit), PZ, 2.0 * ca); setPost(pcutL, X(-t.crit), PZ, two ? 2.0 * ca : 0); lbPc.p.set(X(t.crit), PY + 2.3, PZ); lbPc.a = ca * 0.9;
+        lbPp.a = cl((a - 0.75) / 0.15); setText(lbPp, 'p = ' + pt(t.p) + (t.rej ? ' → reject H₀' : ' → do not reject H₀')); lbPp.el.style.color = t.rej ? '#ffb454' : '#00ffff';
+    }
+    var calcKind = '', calcRows = [];
+    function calcTable(t) {
+        if (calcKind === t.name && tblKind === 'calc') return; calcKind = t.name; tblKind = 'calc';
+        $('tbl').innerHTML = '<div class="cap">' + t.name + ': worked numbers</div><table class="pt"><tbody>' + t.rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td style="text-align:right;color:var(--amber);font-weight:600">' + r[1] + '</td></tr>'; }).join('') + '</tbody></table>';
+        calcRows = [].slice.call($('tbl').querySelectorAll('tbody tr'));
+    }
+
+    function update() {
+        var RT = T, ns = step, ost0, sub;
+        if (ns <= 6) { ost0 = ns; sub = 0; } else if (ns === 22) { ost0 = 12; sub = 0; } else { ost0 = 7 + Math.floor((ns - 7) / 3); sub = (ns - 7) % 3; }
+        ost = ost0; T = sub === 0 ? ost0 + (RT - ns) : ost0 + 0.999;
+        if (sub !== 0) calcKind = calcKind; else calcKind = '';
+        if (sub === 0 && tblKind === 'calc') tblKind = '';
+        oldUpdate();
+        T = RT;
+        var w = RT - ns, tk = ns >= 7 && ns <= 21 ? Math.floor((ns - 7) / 3) : -1, tt = tk >= 0 ? TESTS[tk] : null;
+        // calculation table and caption
+        if (sub > 0 && tt) {
+            calcTable(tt);
+            var nr = tt.rows.length, shown = sub === 1 ? Math.min(nr - 2, Math.floor((w - 0.05) / 0.08) + 1) : nr;
+            calcRows.forEach(function (r, i) { var c = (i >= shown ? 'hid' : '') + ((sub === 1 && i === nr - 3) || (sub === 2 && i >= nr - 2) ? ' hl' : ''); if (r.className !== c) r.className = c; });
+            if (sub === 1) { lbBig.a = ph(ns + 0.55, ns + 0.68); setText(lbBig, tt.cap); }
+        }
+        if (sub === 2) lbBig.a = 0;
+        // curve panel
+        var pa = sub === 2 && tt ? ph(ns + 0.05, ns + 0.95) : 0;
+        if (tt && sub === 2) panel(tt, pa); else { pcur.m.visible = false; pfill.m.material.opacity = 0; ptL.m.visible = ptR.m.visible = false; setBar(pax, 0, 0, PZ, 0); pmark.visible = pcutL.visible = pcutR.visible = false; lbPm.a = lbPp.a = lbPc.a = lbPa.a = 0; pTick.forEach(function (l) { l.a = 0; }); }
+        // one-sample: the claimed value and the gap
+        var oc = tk === 0 && sub > 0 ? 1 : 0, mA = mean(vA);
+        setPost(claimL, XV(MU0), FZ, 2.0 * oc); lbClaim.a = oc; setBar(gapB, XV(Math.min(mA, MU0)), 1.75, FZ, Math.abs(XV(MU0) - XV(mA)) * oc * ph(ns + 0.3, ns + 0.5));
+        if (tt && sub > 0) setStats(tt.name + ': ' + (tt.kind === 'F' ? 'F' : tt.kind) + ' = <b>' + f2(tt.stat) + '</b>' + (sub === 2 ? ' · p = <b>' + pt(tt.p) + '</b> · ' + (tt.rej ? 'reject H₀' : 'do not reject H₀') : ''));
+        T = RT;
+    }
+    // ---------- camera ----------
+    var V = [[0.5, 6, 15.5], [0.3, 2.0, -0.8], -2.4], F = [[0.8, 5.2, 13.5], [0.6, 1.6, 2.6], -2.4], W = [[0.6, 6.5, 16], [0.4, 2.2, -1.4], -2.4];
+    var D = [[0.4, 4.6, 17.5], [0.3, -0.6, 4.0], -2.4];
+    var CAM = [V, V, V, F, F, F, F, V, V, D, W, W, D, F, F, D, W, W, D, F, F, D, V];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fS", "fP"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

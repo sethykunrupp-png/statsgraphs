@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Correlation in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl .hc { opacity: 0; }
+    #tbl tr.tot td { border-top: 1px solid rgba(0,255,255,0.3); color: var(--amber); font-weight: 600; }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="r equals the sum of z of x times z of y, divided by n minus one">
+            <span class="p" id="fR">r</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fS">Σ</span> <span class="p" id="fZ">z<sub style="font-size:.6em">x</sub> z<sub style="font-size:.6em">y</sub></span></span><span class="bot"><span class="p" id="fN">n − 1</span></span></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- correlation: 8 (x, y) pairs ----------
+    var PX = [2, 3, 5, 6, 8, 9, 11, 12], YB = [4, 7, 5, 9, 8, 12, 10, 14], N = 8;
+    var YC = [4, 7, 12, 14, 9, 10, 8, 5], YN = YB.slice().reverse(), YU = PX.map(function (x) { return 3.5 + 0.38 * (x - 7) * (x - 7); });
+    var COL = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff', '#ff8fd0', '#9fe870'], POS = '#ffb454', NEG = '#4dd2ff';
+    function stats(x, y) {
+        var mx = 0, my = 0, i; for (i = 0; i < N; i++) { mx += x[i] / N; my += y[i] / N; }
+        var sxy = 0, sxx = 0, syy = 0; for (i = 0; i < N; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) * (x[i] - mx); syy += (y[i] - my) * (y[i] - my); }
+        var sx = Math.sqrt(sxx / (N - 1)), sy = Math.sqrt(syy / (N - 1));
+        return { mx: mx, my: my, sx: sx, sy: sy, cov: sxy / (N - 1), r: sxy / Math.sqrt(sxx * syy), sxy: sxy };
+    }
+    var base = stats(PX, YB), YP = PX.map(function (x) { return base.my + base.sy / base.sx * (x - base.mx); });
+    var STEPS = [
+        {
+                "t": "Two measurements per person",
+                "n": "Eight students: hours of study across, test score up. Each dot is one student. Do the two go up together?",
+                "s": "8 pairs of (x, y)",
+                "on": []
+        },
+        {
+                "t": "The two means",
+                "n": "Draw a line at the mean of x and another at the mean of y. They cross at the centre of the cloud and split the picture into four quadrants.",
+                "s": "x̄ = 7 · ȳ = 8.6",
+                "on": []
+        },
+        {
+                "t": "Four quadrants",
+                "n": "Top-right: above average on both. Bottom-left: below average on both. In those two quadrants the deviations have the same sign, so their product is positive. In the other two the product is negative.",
+                "s": "",
+                "on": [
+                        "fZ"
+                ]
+        },
+        {
+                "t": "A rectangle for each point",
+                "n": "Join each point to the centre with a rectangle. Its sides are the two deviations, so its area is their product. Amber rectangles count for the relationship, blue ones against it.",
+                "s": "area = (x − x̄)(y − ȳ)",
+                "on": []
+        },
+        {
+                "t": "The table of products",
+                "n": "Each row is one student: the two deviations and their product. Most rectangles here are amber, so most products are positive.",
+                "s": "",
+                "on": [
+                        "fZ"
+                ]
+        },
+        {
+                "t": "Add them: the covariance",
+                "n": "Stack the amber areas in one tower and the blue ones in another. Their sum, divided by n − 1, is the covariance. Positive covariance means the two tend to move together.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fN"
+                ]
+        },
+        {
+                "t": "But covariance depends on units",
+                "n": "Record the score out of 1000 instead of 100. The picture is exactly the same, yet the covariance becomes 10 times bigger. On its own it cannot say how strong the link is.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Standardize both axes",
+                "n": "Measure each variable in standard deviations: turn x and y into z-scores. Now one unit is one standard deviation on both axes, whatever the original units were.",
+                "s": "",
+                "on": [
+                        "fZ"
+                ]
+        },
+        {
+                "t": "r: the average product of z-scores",
+                "n": "Do the same sum with z-scores and divide by n − 1. The result is the correlation r. It has no units, and it always lies between −1 and +1.",
+                "s": "",
+                "on": [
+                        "fR",
+                        "fS",
+                        "fZ",
+                        "fN"
+                ]
+        },
+        {
+                "t": "From −1 to +1",
+                "n": "Points on a straight rising line give r = +1. A shapeless cloud gives r = 0. A falling pattern gives a negative r. Watch the rectangles change colour as the pattern changes.",
+                "s": "",
+                "on": [
+                        "fR"
+                ]
+        },
+        {
+                "t": "One outlier can change r a lot",
+                "n": "Drag the best student far down. One huge blue rectangle cancels much of the amber, and r drops. Always look at the scatter plot, not just the number.",
+                "s": "",
+                "on": [
+                        "fR"
+                ]
+        },
+        {
+                "t": "r only measures straight-line patterns",
+                "n": "Here y depends strongly on x, along a U-shape, yet r is 0: the amber and blue rectangles cancel exactly. A correlation near 0 does not mean no relationship.",
+                "s": "",
+                "on": [
+                        "fR"
+                ]
+        },
+        {
+                "t": "Reading r, and its limits",
+                "n": "Roughly: below 0.3 weak, 0.3 to 0.7 moderate, above 0.7 strong. r² is the share of variation in y that a straight line on x explains. And correlation is not causation: a third factor can drive both.",
+                "s": "",
+                "on": [
+                        "fR"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f2 = function (v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(2); };
+
+    // world mapping: raw units, or z-scores
+    var RWX = function (x) { return (x - 7) * 0.75; }, RWY = function (y) { return (y - 9) * 0.45 + 3.6; };
+    var ZW = 1.6, ZWX = function (z) { return z * ZW; }, ZWY = function (z) { return 3.6 + z * ZW; };
+
+    // ----- table -----
+    $('tbl').innerHTML = '<div class="cap">Products of deviations</div><table><thead><tr><th>x</th><th>y</th><th>x − x̄</th><th>y − ȳ</th><th>product</th><th>z<sub>x</sub> × z<sub>y</sub></th></tr></thead><tbody>' +
+        PX.map(function () { return '<tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>'; }).join('') + '<tr class="tot"><td>Σ</td><td></td><td>0</td><td>0</td><td></td><td></td></tr></tbody></table>';
+    var trs = [].slice.call($('tbl').querySelectorAll('tbody tr')), ths = [].slice.call($('tbl').querySelectorAll('thead th'));
+    function setCell(c, t) { if (c.textContent !== t) c.textContent = t; }
+
+    // ----- frame, ticks, labels -----
+    var fx0 = -4.9, fx1 = 4.9, fy0 = 0.4, fy1 = 7.0;
+    var hx = bar('#3c6d80', 0.5); setBar(hx, fx0, fy0, 0, fx1 - fx0); var vy = post('#3c6d80', 1); setPost(vy, fx0, 0, fy1 - fy0, fy0);
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), tickGeoH = new THREE.BoxGeometry(0.3, 0.04, 0.04), rawT = [], zT = [];
+    for (var v = 2; v <= 12; v += 2) { var t1 = new THREE.Mesh(tickGeo, mat('#5d9ab3')); t1.position.set(RWX(v), fy0, 0); scene.add(t1); rawT.push({ m: t1, lb: label(String(v), RWX(v), fy0 - 0.45, 0, 'tick'), v: v, ax: 'x' }); }
+    for (v = 4; v <= 14; v += 2) { var t2 = new THREE.Mesh(tickGeoH, mat('#5d9ab3')); t2.position.set(fx0, RWY(v), 0); scene.add(t2); rawT.push({ m: t2, lb: label(String(v), fx0 - 0.5, RWY(v), 0, 'tick'), v: v, ax: 'y' }); }
+    for (v = -2; v <= 2; v++) {
+        var t3 = new THREE.Mesh(tickGeo, mat('#ffb454')); t3.position.set(ZWX(v), fy0, 0); scene.add(t3); zT.push({ m: t3, lb: label((v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v), ZWX(v), fy0 - 0.85, 0, 'key') });
+        var t4 = new THREE.Mesh(tickGeoH, mat('#ffb454')); t4.position.set(fx0, ZWY(v), 0); scene.add(t4); zT.push({ m: t4, lb: label((v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v), fx0 - 1.0, ZWY(v), 0, 'key') });
+    }
+    var lbX = label('x: hours of study', fx1 + 0.2, fy0, 0, 'key', true), lbY = label('y: test score', fx0, fy1 + 0.45, 0, 'key');
+
+    // ----- points, mean cross, quadrants, rectangles -----
+    var sph = new THREE.SphereGeometry(0.2, 18, 12), pts = [], rects = [], plane = new THREE.PlaneGeometry(1, 1);
+    for (var i = 0; i < N; i++) {
+        var p = new THREE.Mesh(sph, mat(COL[i])); scene.add(p); pts.push(p);
+        var rb = box(POS, 0.3, true); rb.visible = false; rects.push(rb);
+    }
+    var mxL = post('#00ffff', 1), myL = bar('#00ffff', 1);
+    var quads = [0, 1, 2, 3].map(function (q) { var m = new THREE.Mesh(plane, mat(q === 0 || q === 2 ? POS : NEG, 0)); m.position.z = -0.08; scene.add(m); return m; });
+    var lbQ = [label('+ × + = +', 0, 0, 0, ''), label('− × + = −', 0, 0, 0, ''), label('− × − = +', 0, 0, 0, ''), label('+ × − = −', 0, 0, 0, '')];
+    lbQ[0].el.style.color = lbQ[2].el.style.color = POS; lbQ[1].el.style.color = lbQ[3].el.style.color = '#7fe0ff';
+    var lbMx = label('', 0, fy0 - 0.45, 0.1, 'key'), lbMy = label('', fx1 + 0.2, 0, 0.1, 'key', true);
+    var lbTP = label('', -7.9, 0, 1.4, ''), lbTN = label('', -5.9, 0, 1.4, ''), lbSum = label('', -6.9, 0, 1.4, 'key');
+    lbTP.el.style.color = POS; lbTN.el.style.color = '#7fe0ff';
+    // r gauge
+    var gL = -4, gR = 4, gY = -1.7, gauge = bar('#3c6d80', 1.2), gMark = post('#ffffff', 2.2), gFill = bar(POS, 1.6);
+    var lbG = [label('−1', gL, gY - 0.5, 0, 'tick'), label('0', 0, gY - 0.5, 0, 'tick'), label('+1', gR, gY - 0.5, 0, 'tick')], lbR = label('', 0, gY + 0.55, 0.2, 'key');
+    lbR.el.style.fontSize = '18px';
+
+    function update() {
+        var i;
+        // ----- live data -----
+        var y = YB.slice();
+        var w9 = [ph(9.1, 9.35), ph(9.4, 9.65), ph(9.7, 9.92)], back10 = ph(10.02, 10.12), out = ph(10.2, 10.75) * (1 - ph(11.0, 11.08)), uu = ph(11.15, 11.6) * (1 - ph(12.02, 12.15));
+        for (i = 0; i < N; i++) {
+            var yy = lerp(lerp(lerp(YB[i], YP[i], w9[0]), YC[i], w9[1]), YN[i], w9[2]);
+            yy = lerp(yy, YB[i], back10);
+            if (i === N - 1) yy = lerp(yy, 1.5, out);
+            y[i] = lerp(yy, YU[i], uu);
+        }
+        var s = stats(PX, y), zf = ph(7.1, 7.6) * (1 - ph(9.02, 9.12)) + (T >= 9.12 ? 0 : 0);
+        var unit10 = ph(6.15, 6.35) * (1 - ph(6.95, 7.05));
+        var WX = function (xv) { return lerp(RWX(xv), ZWX((xv - s.mx) / s.sx), zf); }, WY = function (yv) { return lerp(RWY(yv), ZWY((yv - s.my) / s.sy), zf); };
+
+        // points
+        for (i = 0; i < N; i++) { var a = ph(0.05 + i * 0.08, 0.2 + i * 0.08); pts[i].scale.setScalar(Math.max(a, 0.001)); pts[i].visible = a > 0; pts[i].position.set(WX(PX[i]), WY(y[i]), 0.05); }
+        // ticks: raw or z
+        rawT.forEach(function (t) { t.m.visible = zf < 0.98; t.m.material.opacity = 1 - zf; t.lb.a = 0.85 * (1 - zf); setText(t.lb, String(t.ax === 'y' && unit10 > 0.5 ? t.v * 10 : t.v)); });
+        zT.forEach(function (t) { t.m.visible = zf > 0.02; t.m.material.opacity = zf; t.lb.a = zf; });
+        lbX.a = lbY.a = 1; setText(lbX, zf > 0.5 ? 'z of x' : 'x: hours of study'); setText(lbY, zf > 0.5 ? 'z of y' : unit10 > 0.5 ? 'y: score × 10' : 'y: test score');
+        // mean cross
+        var mc = ph(1.1, 1.45), cx = WX(s.mx), cy = WY(s.my);
+        setPost(mxL, cx, 0, (fy1 - fy0) * mc, fy0); setBar(myL, fx0, cy, 0, (fx1 - fx0) * mc);
+        lbMx.p.x = cx; lbMx.a = mc * (1 - zf); setText(lbMx, 'x̄ = ' + s.mx.toFixed(1)); lbMy.p.y = cy; lbMy.a = mc * (1 - zf); setText(lbMy, 'ȳ = ' + (s.my * (unit10 > 0.5 ? 10 : 1)).toFixed(1));
+        // quadrants
+        var qa = ph(2.1, 2.4) * (1 - 0.6 * ph(3.0, 3.2)) * (1 - ph(9.02, 9.1));
+        var qx = [[cx, fx1], [fx0, cx], [fx0, cx], [cx, fx1]], qy = [[cy, fy1], [cy, fy1], [fy0, cy], [fy0, cy]];
+        for (i = 0; i < 4; i++) { var w = Math.max(qx[i][1] - qx[i][0], 0.01), h = Math.max(qy[i][1] - qy[i][0], 0.01); quads[i].scale.set(w, h, 1); quads[i].position.set(qx[i][0] + w / 2, qy[i][0] + h / 2, -0.08); quads[i].material.opacity = 0.16 * qa; quads[i].visible = qa > 0; lbQ[i].p.set(qx[i][0] + w / 2, qy[i][0] + h / 2, 0); lbQ[i].a = ph(2.3, 2.5) * (1 - ph(3.0, 3.1)); }
+
+        // rectangles and towers
+        var ra = ph(3.1, 3.6);
+        var tw = ph(5.15, 5.6) * (1 - ph(5.9, 6.0)) + ph(8.15, 8.6) * (1 - ph(8.95, 9.05)), K = lerp(0.07, 0.55, zf);
+        var hp = 0, hn = 0, sumP = 0, sumZ = 0;
+        for (i = 0; i < N; i++) {
+            var dx = PX[i] - s.mx, dy = y[i] - s.my, prod = dx * dy, zp = (dx / s.sx) * (dy / s.sy), val = lerp(prod, zp, zf), hh = Math.abs(val) * K, pos = val >= 0;
+            sumP += prod; sumZ += zp;
+            var x0 = Math.min(cx, WX(PX[i])), y0 = Math.min(cy, WY(y[i])), rw = Math.max(Math.abs(WX(PX[i]) - cx), 0.01), rh = Math.max(Math.abs(WY(y[i]) - cy), 0.01);
+            var tx = pos ? -8.4 : -6.4, ty = pos ? hp : hn; if (pos) hp += hh; else hn += hh;
+            var rb = rects[i]; rb.visible = cl(ra) > 0 && rw * rh > 0.0004; rb.material.color.set(pos ? POS : NEG); rb.material.opacity = 0.32 * cl(ra) + 0.4 * tw;
+            rb.scale.set(lerp(rw, 1, tw), lerp(rh, Math.max(hh, 0.01), tw), lerp(0.03, 1, tw));
+            rb.position.set(lerp(x0, tx, tw), lerp(y0, ty, tw) + Math.sin(Math.PI * tw) * 1.5, lerp(-0.02, 0.6, tw));
+        }
+        lbTP.p.y = hp + 0.5; lbTN.p.y = hn + 0.5; lbTP.a = lbTN.a = lbSum.a = ph(5.55, 5.65) * (1 - ph(5.9, 5.95)) + ph(8.55, 8.65) * (1 - ph(8.95, 9.0));
+        var mult = unit10 > 0.5 ? 10 : 1;
+        setText(lbTP, 'positive: ' + f2(T < 8 ? hp / 0.07 * mult : hp / 0.55)); setText(lbTN, 'negative: ' + f2(-(T < 8 ? hn / 0.07 * mult : hn / 0.55)));
+        lbSum.p.y = -0.8; setText(lbSum, T < 8 ? 'sum = ' + f2(sumP) + ' → ÷ 7 = covariance ' + f2(s.cov) : 'sum = ' + f2(sumZ) + ' → ÷ 7 = r = ' + f2(s.r));
+
+        // table
+        var cols = step < 4 ? 2 : step < 8 ? 5 : 6;
+        for (i = 0; i < N; i++) {
+            var c = trs[i].children, dxx = PX[i] - s.mx, dyy = y[i] - s.my;
+            setCell(c[0], String(PX[i])); setCell(c[1], (y[i] * mult).toFixed(Math.abs(y[i] - Math.round(y[i])) < 0.01 ? 0 : 1)); setCell(c[2], f2(dxx)); setCell(c[3], f2(dyy * mult)); setCell(c[4], f2(dxx * dyy * mult)); setCell(c[5], f2(dxx / s.sx * dyy / s.sy));
+            for (var j = 0; j < 6; j++) { var k = j >= cols ? 'hc' : ''; if (c[j].className !== k) c[j].className = k; }
+            var rc = ph(0.05 + i * 0.08, 0.2 + i * 0.08) > 0 ? '' : 'hid'; if (trs[i].className !== rc) trs[i].className = rc;
+        }
+        var tc = trs[N].children; setCell(tc[4], f2(sumP * mult)); setCell(tc[5], f2(sumZ));
+        for (j = 0; j < 6; j++) { var k2 = j >= cols ? 'hc' : ''; if (tc[j].className !== k2) tc[j].className = k2; if (ths[j].className !== k2) ths[j].className = k2; }
+        trs[N].className = step >= 4 ? 'tot' : 'tot hid';
+
+        // r gauge
+        var ga = ph(8.6, 8.8);
+        setBar(gauge, gL, gY, 0, (gR - gL) * ga); setPost(gMark, s.r * gR, 0, 0.9 * ga, gY - 0.45);
+        setBar(gFill, Math.min(0, s.r * gR), gY, 0.02, Math.abs(s.r * gR) * ga); gFill.material.color.set(s.r >= 0 ? POS : NEG);
+        for (i = 0; i < 3; i++) lbG[i].a = 0.85 * ga; lbR.p.x = s.r * gR; lbR.a = ga; setText(lbR, 'r = ' + f2(s.r));
+
+        if (step === 5) setStats('Σ products = ' + f2(sumP) + ' · covariance = ' + f2(sumP) + ' ÷ 7 = <b>' + f2(s.cov) + '</b>');
+        else if (step === 6) setStats('covariance = <b>' + f2(s.cov * mult) + '</b> <span class="dim">(same picture, different units)</span>');
+        else if (step >= 8) setStats('r = <b>' + f2(s.r) + '</b> · r² = ' + (s.r * s.r).toFixed(2));
+    }
+
+    // ---------- camera ----------
+    var V = [[2, 4.6, 16.5], [1.6, 3.9, 0.2], -2.6], TW = [[-2.5, 6, 19], [-2, 3.0, 0.5], -1.5], G = [[1.2, 4.4, 19.5], [0.8, 3.1, 0], -2.6];
+    var CAM = [V, V, V, V, V, TW, V, V, TW, G, G, G, G];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fR", "fS", "fZ", "fN"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

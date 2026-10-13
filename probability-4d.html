@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Probability in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Probability of B given A equals probability of A and B divided by probability of A">
+            <span class="p" id="fC" style="font-style:normal;font-size:.8em">P(B | A)</span><span class="sym">=</span><span class="frac"><span class="top"><span class="p" id="fAnd" style="font-style:normal;font-size:.8em">P(A and B)</span></span><span class="bot"><span class="p" id="fA" style="font-style:normal;font-size:.8em">P(A)</span></span></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- 100 equally likely outcomes on a 10 x 10 floor ----------
+    var CA = '#4dd2ff', CB = '#ffb454', CBOTH = '#5cff9d', CNOT = '#ff5c8a';
+    var inA = function (r, c) { return c < 4; };      // event A: the first 4 columns, 40 tiles
+    var STEPS = [
+        {
+                "t": "100 equally likely outcomes",
+                "n": "Each tile is one possible outcome, and all are equally likely. A probability is a share of the floor.",
+                "s": "probability = tiles in the event ÷ all tiles",
+                "on": []
+        },
+        {
+                "t": "An event is a set of tiles",
+                "n": "Event A covers 40 of the 100 tiles, raised in blue. Its probability is its share of the floor.",
+                "s": "P(A) = 40 ÷ 100 = <b>0.40</b>",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "Not A is everything else",
+                "n": "The pink tiles are the outcomes where A does not happen. An event and its complement always add to 1.",
+                "s": "P(not A) = 1 − 0.40 = <b>0.60</b>",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "A second event, B",
+                "n": "Event B covers 30 tiles, stacked in amber. Where B lands on top of A the tile is two layers high.",
+                "s": "P(B) = 30 ÷ 100 = <b>0.30</b>",
+                "on": []
+        },
+        {
+                "t": "A and B: the overlap",
+                "n": "Only the tiles with both layers count. They turn green: 12 tiles where A and B happen together.",
+                "s": "P(A and B) = 12 ÷ 100 = <b>0.12</b>",
+                "on": [
+                        "fAnd"
+                ]
+        },
+        {
+                "t": "A or B: at least one layer",
+                "n": "Count every raised tile once. Adding 40 and 30 counts the 12 overlap tiles twice, so subtract them once.",
+                "s": "0.40 + 0.30 − 0.12 = <b>0.58</b>",
+                "on": [
+                        "fAnd",
+                        "fA"
+                ]
+        },
+        {
+                "t": "Given A: the floor shrinks",
+                "n": "If we know A happened, the rest of the floor drops away. Inside A, 12 of the 40 tiles have B. That is the same 0.30 as before, so A tells us nothing about B.",
+                "s": "P(B | A) = 0.12 ÷ 0.40 = <b>0.30</b>",
+                "on": [
+                        "fC",
+                        "fAnd",
+                        "fA"
+                ]
+        },
+        {
+                "t": "When events are linked",
+                "n": "Move 8 of the B tiles inside A. B still covers 30 tiles, but now knowing A makes B more likely. The events are no longer independent.",
+                "s": "",
+                "on": [
+                        "fC",
+                        "fAnd",
+                        "fA"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    grid.position.set(4.5, -0.05, 4.5);
+
+    var base = [], baseIn = mat('#17404f', 0.9), baseOut = mat('#17404f', 0.9), aLayer = [], bBox = [];
+    for (var r = 0; r < 10; r++) for (var c = 0; c < 10; c++) {
+        var t = new THREE.Mesh(boxGeo, inA(r, c) ? baseIn : baseOut); t.scale.set(0.9, 0.15, 0.9); scene.add(t); base.push({ m: t, r: r, c: c });
+        if (inA(r, c)) { var a = box(CA, 0.8, true); aLayer.push({ m: a, r: r, c: c }); }
+    }
+    // event B: the first 3 rows, 30 tiles. In the last step 8 of them move inside A.
+    var alt = 0;
+    for (var j = 0; j < 30; j++) {
+        var br = Math.floor(j / 10), bc = j % 10, mover = (br === 2 && bc >= 4) || (br === 1 && bc >= 8), o = { m: box(CB, 0.85, true), r: br, c: bc, k: -1 };
+        if (mover) { o.k = alt; o.r2 = 3 + Math.floor(alt / 4); o.c2 = alt % 4; alt++; }
+        bBox.push(o);
+    }
+    var lbA = label('A', 1.5, 1.7, -1.0, 'key'), lbB = label('B', -1.2, 1.2, 1, 'eq'), lbRes = label('', 6.6, 3.1, -1.6, 'key'); lbRes.el.style.fontSize = '19px';
+    lbA.el.style.fontSize = lbB.el.style.fontSize = '20px';
+    var lbNot = label('not A', 6.5, 0.9, -1.0, ''), lbGiven = label('', 1.5, 3.2, 10.6, 'eq');
+
+    function update() {
+        var i;
+        var comp = ph(2.1, 2.3) * (1 - ph(2.82, 2.97)), and = ph(4.1, 4.35) * (1 - ph(5.0, 5.12)), or = ph(5.1, 5.3) * (1 - ph(6.0, 6.1)), out = ph(6.1, 6.5);
+        baseOut.color.set('#17404f').lerp(new THREE.Color(CNOT), comp * 0.85); baseOut.opacity = lerp(0.9 - 0.5 * or, 0.12, out);
+        baseIn.opacity = 0.9;
+        for (i = 0; i < 100; i++) {
+            var t = base[i], ap = ph(0.05 + (t.r + t.c) * 0.03, 0.2 + (t.r + t.c) * 0.03), isIn = inA(t.r, t.c);
+            t.m.visible = ap > 0; t.m.scale.set(0.9 * ap, 0.15, 0.9 * ap);
+            t.m.position.set(t.c + 0.05, isIn ? 0 : -2.2 * out, t.r + 0.05);
+        }
+        // the A layer
+        for (i = 0; i < aLayer.length; i++) {
+            var a = aLayer[i], g = ph(1.1 + (a.r + a.c) * 0.03, 1.3 + (a.r + a.c) * 0.03);
+            a.m.visible = g > 0; a.m.scale.set(0.9, Math.max(0.6 * g, 0.01), 0.9); a.m.position.set(a.c + 0.05, 0.15, a.r + 0.05);
+            var over = a.r < 3 || (a.r < 5 && T > 7.9);
+            a.m.material.opacity = 0.8 * (1 - 0.7 * comp) * (1 - (over ? 0 : 0.6 * and));
+        }
+        // the B layer
+        var insideA = 0;
+        for (i = 0; i < 30; i++) {
+            var b = bBox[i], g2 = ph(3.1 + i * 0.022, 3.25 + i * 0.022), mv = b.k >= 0 ? ph(7.15 + b.k * 0.07, 7.4 + b.k * 0.07) : 0;
+            var homeIn = inA(b.r, b.c), nowIn = homeIn || mv >= 1; if (nowIn) insideA++;
+            var y0 = homeIn ? 0.75 : 0.15 - 2.2 * out, x = b.c, zz = b.r, y = y0;
+            if (b.k >= 0) { x = lerp(b.c, b.c2, mv); zz = lerp(b.r, b.r2, mv); y = lerp(y0, 0.75, mv) + Math.sin(Math.PI * mv) * 2.2; }
+            b.m.visible = g2 > 0; b.m.scale.set(0.9, Math.max(0.6 * g2, 0.01), 0.9); b.m.position.set(x + 0.05, y, zz + 0.05);
+            var both = homeIn || mv > 0.5;
+            b.m.material.color.set(both ? CB : CB).lerp(new THREE.Color(CBOTH), both ? Math.max(and, out, mv) : 0);
+            b.m.material.opacity = both ? 0.9 : lerp(0.85 * (1 - 0.7 * and), 0.12, out * (1 - mv));
+        }
+        lbA.a = ph(1.2, 1.35); lbB.a = ph(3.2, 3.35) * (1 - 0.6 * out); lbNot.a = comp;
+        // floating result
+        var res = '', ra = 0;
+        if (step === 1) { res = 'P(A) = 40 ÷ 100 = 0.40'; ra = ph(1.6, 1.75); }
+        else if (step === 2) { res = 'P(not A) = 1 − 0.40 = 0.60'; ra = ph(2.3, 2.45); }
+        else if (step === 3) { res = 'P(B) = 30 ÷ 100 = 0.30'; ra = ph(3.75, 3.9); }
+        else if (step === 4) { res = 'P(A and B) = 12 ÷ 100 = 0.12'; ra = ph(4.35, 4.5); }
+        else if (step === 5) { res = 'P(A or B) = 0.40 + 0.30 − 0.12 = 0.58'; ra = ph(5.3, 5.45); }
+        else if (step === 6) { res = 'P(B | A) = 12 ÷ 40 = 0.30'; ra = ph(6.5, 6.65); }
+        else if (step === 7) { res = 'P(B | A) = ' + insideA + ' ÷ 40 = ' + (insideA / 40).toFixed(2); ra = 1; }
+        lbRes.a = ra; setText(lbRes, res);
+        lbGiven.a = ph(6.5, 6.65); setText(lbGiven, 'only the 40 tiles of A are left');
+
+        if (step === 7) setStats('P(B) = 0.30 but P(B | A) = <b>' + (insideA / 40).toFixed(2) + '</b>' + (insideA === 12 ? ' <span class="dim">(independent)</span>' : ' <span class="dim">(not independent)</span>'));
+    }
+
+    // ---------- camera ----------
+    var ALLV = [[8, 15, 22], [4.5, 0.3, 5.6], 2.6], AV = [[6, 14, 20], [3.6, 0.4, 5.8], 2.2];
+    var CAM = [ALLV, ALLV, ALLV, ALLV, ALLV, ALLV, AV, AV];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fC", "fAnd", "fA"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

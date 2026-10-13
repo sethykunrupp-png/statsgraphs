@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Multiple Regression in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.nofit th:nth-child(n+5), #tbl table.nofit td:nth-child(n+5) { display: none; }
+    @media (min-width: 761px) { #tbl { width: min(340px, calc(100% - 32px)); font-size: 11.5px; padding: 10px 12px; } #tbl td, #tbl th { padding: 2px 5px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Y hat equals b zero plus b one x one plus b two x two">
+            <span class="p" id="fY">ŷ</span><span class="sym">=</span><span class="p" id="fB0">b<sub style="font-size:.6em">0</sub></span> <span class="sym">+</span> <span class="p" id="fB1">b<sub style="font-size:.6em">1</sub></span><span class="p" id="fX1">x<sub style="font-size:.6em">1</sub></span> <span class="sym">+</span> <span class="p" id="fB2">b<sub style="font-size:.6em">2</sub></span><span class="p" id="fX2">x<sub style="font-size:.6em">2</sub></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- multiple regression: house price on size and distance ----------
+    var X1 = [4, 8, 4, 6, 11, 14, 8, 10, 5, 8, 9, 9], X2 = [4, 6, 1, 4, 6, 10, 4, 1, 2, 5, 4, 5], YV = [6, 16.4, 11.4, 9.9, 19, 21.9, 17, 21.9, 15.5, 14.2, 17.2, 15.4], N = 12;
+    var STEPS = [
+        {
+                "t": "Three numbers per house",
+                "n": "Twelve houses. For each one we know its size, its distance from the city centre, and its price. Each house first lands on the floor at its size and distance.",
+                "s": "size x₁ · distance x₂ · price y",
+                "on": [
+                        "fX1",
+                        "fX2"
+                ]
+        },
+        {
+                "t": "Lift each house to its price",
+                "n": "Raise each dot to the height of its price. The houses now float in 3D space: two x values on the floor, y going up.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Size alone",
+                "n": "Look from the front so distance disappears. One straight line through price and size: bigger houses cost more.",
+                "s": "",
+                "on": [
+                        "fX1"
+                ]
+        },
+        {
+                "t": "Distance alone",
+                "n": "Now look from the side so size disappears. Strangely, the line tilts up: houses farther out look a little more expensive. And it explains almost nothing.",
+                "s": "",
+                "on": [
+                        "fX2"
+                ]
+        },
+        {
+                "t": "The two x values are linked",
+                "n": "Look down at the floor. Bigger houses tend to sit farther from the centre. So each one-variable line mixes the effect of size with the effect of distance.",
+                "s": "",
+                "on": [
+                        "fX1",
+                        "fX2"
+                ]
+        },
+        {
+                "t": "With two x values, a plane",
+                "n": "One line cannot use both x values. A tilted plane can: its height above each floor spot is the predicted price. Start with a flat plane at the mean price.",
+                "s": "ŷ = b₀ + b₁x₁ + b₂x₂",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fX1",
+                        "fB2",
+                        "fX2"
+                ]
+        },
+        {
+                "t": "Residuals to the plane",
+                "n": "Each stick is a residual: amber when the house is above the plane, pink when below. The meter adds up the squared residuals.",
+                "s": "residual e = y − ŷ",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Tilt the plane: least squares",
+                "n": "Tilt the plane in both directions until the sum of squared residuals is as small as possible. That is the least-squares plane. The ŷ and e columns fill in.",
+                "s": "",
+                "on": [
+                        "fB0",
+                        "fB1",
+                        "fB2"
+                ]
+        },
+        {
+                "t": "Read b₁: hold distance fixed",
+                "n": "Slice the plane at any fixed distance. Every slice has the same slope: each extra 1 of size adds 1.91 to the price. This is the effect of size with distance held constant.",
+                "s": "",
+                "on": [
+                        "fB1",
+                        "fX1"
+                ]
+        },
+        {
+                "t": "Read b₂: hold size fixed",
+                "n": "Slice across at any fixed size. Every extra km from the centre lowers the price by 0.99. Alone, distance looked positive. Holding size fixed, it is clearly negative.",
+                "s": "",
+                "on": [
+                        "fB2",
+                        "fX2"
+                ]
+        },
+        {
+                "t": "Why the slopes changed",
+                "n": "Size alone gave 1.34. With distance held fixed it is 1.91. Big houses are farther out, and distance pulls their price down, so the one-variable line under-counts size. This is omitted-variable bias.",
+                "s": "",
+                "on": [
+                        "fB1"
+                ]
+        },
+        {
+                "t": "The intercept b₀",
+                "n": "b₀ is the height of the plane at size 0 and distance 0: a house with no floor area at the centre. It anchors the plane but is far outside the data, so do not read it as a real price.",
+                "s": "",
+                "on": [
+                        "fB0"
+                ]
+        },
+        {
+                "t": "R² and adjusted R²",
+                "n": "The flat plane left 240.2 of squared error. The fitted plane leaves 32.6. The explained share is R². Adjusted R² charges a small penalty for each x, so adding a useless x cannot make it look better.",
+                "s": "adjusted R² = 1 − (1 − R²)(n − 1) ÷ (n − k − 1)",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Predict a new house",
+                "n": "A house of size 9 at 3 km: go up from that floor spot to the plane and read the height.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fX1",
+                        "fB2",
+                        "fX2"
+                ]
+        },
+        {
+                "t": "Is each x useful? t tests",
+                "n": "Another sample would give a slightly different plane: the faint planes. The standard error of each coefficient measures that wobble. t = b ÷ SE. Both slopes are far from zero, so both x values matter.",
+                "s": "H₀: b₁ = 0 · H₀: b₂ = 0",
+                "on": [
+                        "fB1",
+                        "fB2"
+                ]
+        },
+        {
+                "t": "Is the model useful at all? F test",
+                "n": "The F test asks if all slopes are zero together. Explained variation per x (MS regression) is compared with left-over variation per degree of freedom (MS residual).",
+                "s": "H₀: b₁ = b₂ = 0",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Multicollinearity",
+                "n": "Squeeze the houses so size and distance almost line up. The data now sits along a ridge, and the plane can see-saw around it: b₁ and b₂ swing wildly while predictions on the ridge barely change. VIF measures this.",
+                "s": "VIF = 1 ÷ (1 − r²)",
+                "on": [
+                        "fB1",
+                        "fB2"
+                ]
+        },
+        {
+                "t": "Check the residuals",
+                "n": "Flatten the plane so residuals hang above and below zero. No pattern, no funnel and no curve means the plane is a fair summary.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "What the plane says",
+                "n": "Each b is an effect with the other x held fixed. More x values work the same way, even though we cannot draw them. The plane shows association, not proof of cause.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fX1",
+                        "fB2",
+                        "fX2"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    var sg2 = function (v) { return (v < 0 ? '− ' : '+ ') + Math.abs(v).toFixed(2); };
+    var WX = function (a) { return (a - 3) * 0.8; }, WZ = function (b) { return -b * 0.8; }, WY = function (y) { return y * 0.3; };
+    grid.position.set(4.6, -0.03, -4.4);
+
+    // ---------- the numbers ----------
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function solve3(A, v) {
+        var M = A.map(function (r, i) { return r.concat([v[i]]); });
+        for (var c = 0; c < 3; c++) { var pv = c; for (var r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[pv][c])) pv = r; var tmp = M[c]; M[c] = M[pv]; M[pv] = tmp;
+            for (r = 0; r < 3; r++) if (r !== c) { var f = M[r][c] / M[c][c]; for (var k = c; k < 4; k++) M[r][k] -= f * M[c][k]; } }
+        return [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]];
+    }
+    function xtx(x1, x2) { var A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]; for (var i = 0; i < x1.length; i++) { var r = [1, x1[i], x2[i]]; for (var a = 0; a < 3; a++) for (var b = 0; b < 3; b++) A[a][b] += r[a] * r[b]; } return A; }
+    function fit(x1, x2, y) { var A = xtx(x1, x2), v = [0, 0, 0]; for (var i = 0; i < y.length; i++) { v[0] += y[i]; v[1] += x1[i] * y[i]; v[2] += x2[i] * y[i]; } return solve3(A, v); }
+    var B = fit(X1, X2, YV), YM = mean(YV), X1M = mean(X1), X2M = mean(X2);
+    var YH = X1.map(function (a, i) { return B[0] + B[1] * a + B[2] * X2[i]; }), RES = YV.map(function (y, i) { return y - YH[i]; });
+    var SST = 0, SSE = 0; for (var i0 = 0; i0 < N; i0++) { SST += (YV[i0] - YM) * (YV[i0] - YM); SSE += RES[i0] * RES[i0]; }
+    var SSR = SST - SSE, R2 = SSR / SST, AR2 = 1 - (1 - R2) * (N - 1) / (N - 3), S2 = SSE / (N - 3), MSR = SSR / 2, FV = MSR / S2, PF = Math.pow(1 + 2 * FV / (N - 3), -(N - 3) / 2);
+    var INV = [0, 1, 2].map(function (k) { var e = [0, 0, 0]; e[k] = 1; return solve3(xtx(X1, X2), e); });
+    var SE = [0, 1, 2].map(function (k) { return Math.sqrt(S2 * INV[k][k]); }), TV = B.map(function (b, k) { return b / SE[k]; });
+    function tpdf(x, df) { return Math.pow(1 + x * x / df, -(df + 1) / 2); }
+    function tP(t, df) { var c = 0, h = 0.02, q; for (q = 0; q < 4000; q++) c += (tpdf(q * h, df) + tpdf((q + 1) * h, df)) / 2 * h; var ax = Math.abs(t), n = 400, hh = ax / n, a = 0; for (q = 0; q < n; q++) a += (tpdf(q * hh, df) + tpdf((q + 1) * hh, df)) / 2 * hh; return 1 - a / c; }
+    var PV = TV.map(function (t) { return tP(t, N - 3); });
+    function simple(x, y) { var mx = mean(x), my = mean(y), sxy = 0, sxx = 0, syy = 0; for (var i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) * (x[i] - mx); syy += (y[i] - my) * (y[i] - my); } var b = sxy / sxx; return { b: b, a: my - b * mx, r2: sxy * sxy / sxx / syy, r: sxy / Math.sqrt(sxx * syy) }; }
+    var SM1 = simple(X1, YV), SM2 = simple(X2, YV), FLR = simple(X1, X2), VIF = 1 / (1 - FLR.r * FLR.r);
+    var pt = function (p) { return p < 0.001 ? '< 0.001' : p.toFixed(3); };
+    var PRED = [9, 3], YP = B[0] + B[1] * PRED[0] + B[2] * PRED[1];
+    var COL = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff', '#ff8fd0', '#7dffea', '#ffb454', '#9dff5c', '#5c9dff', '#ff6bd6'];
+
+    // ---------- helpers ----------
+    var XAX = new THREE.Vector3(1, 0, 0);
+    function seg3(m, ax, ay, az, bx, by, bz) {
+        var d = new THREE.Vector3(bx - ax, by - ay, bz - az), len = d.length();
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+        if (len > 0.001) m.quaternion.setFromUnitVectors(XAX, d.normalize());
+    }
+    function plane(color, op, lines) {
+        var pos = new Float32Array(12), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex([0, 1, 2, 0, 2, 3]);
+        var m = new THREE.Mesh(g, mat(color, op)); m.frustumCulled = false; scene.add(m);
+        var nl = lines ? 14 : 4, lp = new Float32Array(nl * 6), lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+        var ln = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.6 })); ln.frustumCulled = false; scene.add(ln);
+        return { m: m, ln: ln, set: function (c, lo1, hi1, lo2, hi2, a) {
+            var h = function (p, q) { return WY(c[0] + c[1] * p + c[2] * q); };
+            var cs = [[lo1, lo2], [hi1, lo2], [hi1, hi2], [lo1, hi2]];
+            cs.forEach(function (k, j) { pos[j * 3] = WX(k[0]); pos[j * 3 + 1] = h(k[0], k[1]); pos[j * 3 + 2] = WZ(k[1]); }); g.attributes.position.needsUpdate = true;
+            var segs = [], s1, j2;
+            for (j2 = 0; j2 < 4; j2++) segs.push([cs[j2], cs[(j2 + 1) % 4]]);
+            if (lines) { for (s1 = 1; s1 <= 5; s1++) { var p = lo1 + (hi1 - lo1) * s1 / 6; segs.push([[p, lo2], [p, hi2]]); } for (s1 = 1; s1 <= 5; s1++) { var q = lo2 + (hi2 - lo2) * s1 / 6; segs.push([[lo1, q], [hi1, q]]); } }
+            segs.forEach(function (sg, j) { var o = j * 6; lp[o] = WX(sg[0][0]); lp[o + 1] = h(sg[0][0], sg[0][1]); lp[o + 2] = WZ(sg[0][1]); lp[o + 3] = WX(sg[1][0]); lp[o + 4] = h(sg[1][0], sg[1][1]); lp[o + 5] = WZ(sg[1][1]); });
+            lg.attributes.position.needsUpdate = true;
+            m.visible = ln.visible = a > 0.01; m.material.opacity = op * a; ln.material.opacity = 0.6 * a;
+        } };
+    }
+
+    // ---------- axes ----------
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04);
+    var ax1 = bar('#3c6d80', 0.5), ax2 = bar('#3c6d80', 0.5), axY = post('#3c6d80');
+    seg3(ax1, WX(3), 0, 0, WX(15.6), 0, 0); seg3(ax2, WX(3), 0, 0, WX(3), 0, WZ(11.2)); setPost(axY, WX(3), 0, WY(25));
+    var axLb = [];
+    for (var v = 4; v <= 14; v += 2) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(WX(v), 0, 0); scene.add(tk); axLb.push(label(String(v), WX(v), -0.35, 0.35, 'tick')); }
+    for (v = 2; v <= 10; v += 2) { var tk2 = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk2.position.set(WX(3), 0, WZ(v)); scene.add(tk2); axLb.push(label(String(v), WX(3) - 0.35, -0.3, WZ(v), 'tick')); }
+    for (v = 5; v <= 25; v += 5) { var tk3 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.04), mat('#5d9ab3')); tk3.position.set(WX(3), WY(v), 0); scene.add(tk3); axLb.push(label(String(v), WX(3) - 0.45, WY(v), 0, 'tick')); }
+    var lbA1 = label('size x₁ (×10 m²)', WX(15.9), -0.1, 0.2, 'key', true), lbA2 = label('distance x₂ (km)', WX(3), -0.1, WZ(11.8), 'key'), lbAY = label('price y ($10k)', WX(3), WY(26.3), 0, 'key');
+    axLb.forEach(function (l) { l.a = 0.8; }); lbA1.a = lbA2.a = lbAY.a = 1;
+
+    // ---------- houses ----------
+    var sph = new THREE.SphereGeometry(0.2, 18, 12), disc = new THREE.CircleGeometry(0.16, 20); disc.rotateX(-Math.PI / 2);
+    var H = [];
+    for (var i = 0; i < N; i++) {
+        var pm = new THREE.Mesh(sph, mat(COL[i])); scene.add(pm);
+        var sh = new THREE.Mesh(disc, mat(COL[i], 0.55)); scene.add(sh);
+        H.push({ p: pm, sh: sh, drop: post(COL[i], 0.5), res: post('#ffb454', 1.6) });
+    }
+    var main = plane('#00ffff', 0.16, true), ghosts = []; for (i = 0; i < 8; i++) ghosts.push(plane('#b388ff', 0.05, false));
+    var line1 = bar('#ff5c8a', 1.4), line2 = bar('#ffb454', 1.4), flr = bar('#ffffff', 0.9), slc = bar('#00ffff', 2.2), run = bar('#ffffff', 1.5), rise = bar('#ffffff', 1.5);
+    var icpt = new THREE.Mesh(sph, mat('#ffffff')); scene.add(icpt);
+    var probeV = post('#ffb454', 1.4), probeDot = new THREE.Mesh(sph, mat('#ffb454')), probeSh = new THREE.Mesh(disc, mat('#ffb454', 0.9)); scene.add(probeDot); scene.add(probeSh);
+    var MX = WX(17.6), MZ0 = WZ(2), MH = 6;
+    var meter = box('#ffb454', 0.85, true), ghostM = box('#ffffff', 0.08, true), expl = box('#00ffff', 0, false);
+    var twR = box('#00ffff', 0.8, true), twE = box('#ffb454', 0.85, true);
+    var lbEq = label('', 0, 0, 0, 'key'), lbL1 = label('', 0, 0, 0, ''), lbL2 = label('', 0, 0, 0, ''), lbFl = label('', 0, 0, 0, 'key'), lbSl = label('', 0, 0, 0, ''), lbRun = label('', 0, 0, 0, ''), lbRise = label('', 0, 0, 0, 'eq');
+    var lbIc = label('', 0, 0, 0, 'eq'), lbM = label('', MX + 1.2, 0, MZ0, 'eq', true), lbMT = label('', MX + 0.5, MH + 0.55, MZ0, ''), lbEx = label('', MX + 1.2, 0, MZ0, 'key', true), lbR2 = label('', MX + 0.5, MH + 1.2, MZ0, 'key');
+    var lbPr = label('', 0, 0, 0, 'eq'), lbTR = label('', 0, 0, 0, 'key'), lbTE = label('', 0, 0, 0, 'eq'), lbF = label('', 0, 0, 0, 'key'), lbV = label('', 0, 0, 0, 'key', true), lbZero = label('', 0, 0, 0, 'key');
+    lbL1.el.style.color = '#ff8fae'; lbL2.el.style.color = '#ffb454'; lbEq.el.style.fontSize = lbR2.el.style.fontSize = lbF.el.style.fontSize = '16px';
+
+    // ---------- table card ----------
+    var tblKind = '', trs = [];
+    function buildTable(kind) {
+        if (kind === tblKind) return; tblKind = kind;
+        var cap, head, rows, cls = '';
+        if (kind === 'data') { cap = 'Twelve houses'; head = ['house', 'size x₁', 'dist. x₂', 'price y', 'ŷ', 'e = y − ŷ'];
+            rows = X1.map(function (a, i) { return ['<span style="color:' + COL[i] + '">●</span> ' + (i + 1), a, X2[i], f1(YV[i]), f1(YH[i]), (RES[i] < 0 ? '−' : '+') + Math.abs(RES[i]).toFixed(2)]; }); }
+        else if (kind === 'coef') { cap = 'Coefficients · n = 12 · s = ' + f2(Math.sqrt(S2)); head = ['term', 'b', 'SE', 't = b ÷ SE', 'p', 'VIF'];
+            var nm = ['intercept', 'size x₁', 'distance x₂'];
+            rows = B.map(function (b, k) { return [nm[k], f2(b), f2(SE[k]), f2(TV[k]), pt(PV[k]), k ? f2(VIF) : '']; }); }
+        else { cap = 'ANOVA table for the regression'; head = ['source', 'SS', 'df', 'MS', 'F', 'p'];
+            rows = [['regression', f1(SSR), '2', f1(MSR), f1(FV), pt(PF)], ['residual', f1(SSE), '9', f2(S2), '', ''], ['total', f1(SST), '11', '', '', '']]; }
+        $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table class="' + cls + '"><thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+        trs = [].slice.call($('tbl').querySelectorAll('tbody tr'));
+    }
+    function markRows(reveal, hl) { trs.forEach(function (t, i) { var c = (i >= reveal ? 'hid' : '') + (hl.indexOf(i) >= 0 ? ' hl' : ''); if (t.className !== c) t.className = c; }); }
+    function setFitCols(on) { var tb = $('tbl').querySelector('table'); if (tb && tb.classList.contains('nofit') === on) tb.classList.toggle('nofit'); }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        // ----- collinear squeeze (step 16) and residual view (step 17) -----
+        var sq = ph(16.1, 16.5) * (1 - ph(17.0, 17.1)), un = ph(17.1, 17.6) * (1 - ph(18.0, 18.1));
+        var x2s = X2.map(function (b, i) { var tr = FLR.a + FLR.b * X1[i]; return lerp(b, tr + 0.08 * (b - tr), sq); });
+        var C = T < 5 ? [YM, 0, 0] : [lerp(YM, B[0], ph(7.1, 7.8)), B[1] * ph(7.1, 7.8), B[2] * ph(7.1, 7.8)];
+        var hh = function (p, q) { return C[0] + C[1] * p + C[2] * q; };
+        var yshow = function (i) { return lerp(YV[i], YM + YV[i] - hh(X1[i], X2[i]), un); };
+        var CP = [lerp(C[0], YM, un), C[1] * (1 - un), C[2] * (1 - un)];
+        // ----- houses -----
+        var lift = ph(1.1, 1.8) * (1 - ph(4.05, 4.3) * (1 - ph(5.0, 5.2)));
+        for (i = 0; i < N; i++) {
+            var o = H[i], ap = ph(0.08 + i * 0.06, 0.2 + i * 0.06), x = WX(X1[i]), z = WZ(x2s[i]), y = WY(yshow(i)) * lift;
+            o.sh.visible = ap > 0; o.sh.position.set(x, 0.02, z); o.sh.scale.setScalar(Math.max(ap, 0.001));
+            o.p.visible = ap > 0; o.p.position.set(x, y + 0.06, z); o.p.scale.setScalar(Math.max(ap, 0.001));
+            setPost(o.drop, x, z, y, 0); o.drop.material.opacity = 0.35;
+            var ra = T >= 6 && T < 8 ? ph(6.1 + i * 0.04, 6.3 + i * 0.04) : (vis(12, 13) + vis(17, 18));
+            var yh = hh(X1[i], x2s[i]), yy = yshow(i), base = lerp(yh, YM, un);
+            setPost(o.res, x, z, Math.abs(WY(yy) - WY(base)) * ra, WY(Math.min(yy, base)) + 0.03); o.res.material.color.set(yy >= base ? '#ffb454' : '#ff5c8a');
+        }
+        // ----- the plane -----
+        var pa = ph(5.1, 5.5) * (1 - 0.75 * sq), lo1 = lerp(3, 0, ph(11.1, 11.4) * (1 - ph(12.0, 12.1)));
+        main.set(CP, lo1, 15, 0, 11, pa * (step === 10 ? 0.5 : 1));
+        lbEq.p.set(WX(15) + 0.2, WY(hh(15, 0)) + 0.5, 0.2); lbEq.a = ph(5.5, 5.7) * (1 - un) * (step === 16 ? 0 : 1);
+        setText(lbEq, T < 7.5 ? 'flat plane: ŷ = ' + f1(YM) + ' (mean price)' : 'ŷ = ' + f2(B[0]) + ' ' + sg2(B[1]) + 'x₁ ' + sg2(B[2]) + 'x₂');
+        // ----- simple lines (steps 2, 3, 10) -----
+        var l1 = vis(2, 3) + vis(10, 11), zl = WZ(X2M);
+        seg3(line1, WX(3.2), WY(SM1.a + SM1.b * 3.2), zl, WX(lerp(3.2, 15, l1)), WY(SM1.a + SM1.b * lerp(3.2, 15, l1)), zl); line1.visible = l1 > 0.01;
+        lbL1.p.set(WX(13.6), WY(SM1.a + SM1.b * 15) + 0.55, zl); lbL1.a = l1; setText(lbL1, 'size alone: slope ' + f2(SM1.b) + ' · R² = ' + f2(SM1.r2));
+        var l2 = vis(3, 4), xl = WX(X1M);
+        seg3(line2, xl, WY(SM2.a), WZ(0), xl, WY(SM2.a + SM2.b * lerp(0, 11, l2)), WZ(lerp(0, 11, l2))); line2.visible = l2 > 0.01;
+        lbL2.p.set(xl, WY(SM2.a + SM2.b * 11) + 0.6, WZ(10)); lbL2.a = l2; setText(lbL2, 'distance alone: slope +' + f2(SM2.b) + ' · R² = ' + f2(SM2.r2));
+        // floor trend (step 4)
+        var fl = vis(4, 5);
+        seg3(flr, WX(3.5), 0.03, WZ(FLR.a + FLR.b * 3.5), WX(lerp(3.5, 14.5, fl)), 0.03, WZ(FLR.a + FLR.b * lerp(3.5, 14.5, fl))); flr.visible = fl > 0.01;
+        lbFl.p.set(WX(5), 0.3, WZ(FLR.a + FLR.b * 5) - 1.6); lbFl.a = fl; setText(lbFl, 'bigger houses sit farther out · r = ' + f2(FLR.r));
+        // ----- holding one x fixed (steps 8, 9, 10) -----
+        var s8 = vis(8, 9), s9 = vis(9, 10), s10 = vis(10, 11);
+        if (s8 > 0) { var q8 = lerp(lerp(1, 9, ph(8.1, 8.45)), 4, ph(8.5, 8.65)); seg3(slc, WX(3), WY(hh(3, q8)), WZ(q8), WX(15), WY(hh(15, q8)), WZ(q8)); slc.material.opacity = s8; lbSl.p.set(WX(15) + 0.2, WY(hh(15, q8)) + 0.4, WZ(q8)); lbSl.a = s8; setText(lbSl, 'distance held at ' + f1(q8) + ' km'); }
+        else if (s9 > 0) { var q9 = lerp(lerp(5, 13, ph(9.1, 9.45)), 10, ph(9.5, 9.65)); seg3(slc, WX(q9), WY(hh(q9, 0)), WZ(0), WX(q9), WY(hh(q9, 11)), WZ(11)); slc.material.opacity = s9; lbSl.p.set(WX(q9), WY(hh(q9, 11)) + 0.45, WZ(11)); lbSl.a = s9; setText(lbSl, 'size held at ' + f1(q9)); }
+        else if (s10 > 0) { seg3(slc, WX(3.2), WY(hh(3.2, X2M)), zl, WX(15), WY(hh(15, X2M)), zl); slc.material.opacity = s10; lbSl.p.set(WX(15) + 0.2, WY(hh(15, X2M)) - 0.1, zl); lbSl.a = s10; setText(lbSl, 'plane, distance held fixed: slope ' + f2(B[1])); }
+        else { slc.visible = false; lbSl.a = 0; }
+        if (s8 > 0 || s9 > 0 || s10 > 0) slc.visible = true;
+        var st8 = ph(8.7, 8.8) * (1 - ph(9.0, 9.05)), st9 = ph(9.7, 9.8) * (1 - ph(10.0, 10.05));
+        if (st8 > 0) { seg3(run, WX(10), WY(hh(10, 4)) + 0.02, WZ(4), WX(10 + st8), WY(hh(10, 4)) + 0.02, WZ(4)); seg3(rise, WX(11), WY(hh(10, 4)), WZ(4), WX(11), WY(hh(10, 4) + B[1] * cl(st8 * 2 - 1)), WZ(4));
+            lbRun.p.set(WX(10.5), WY(hh(10, 4)) - 0.35, WZ(4)); lbRise.p.set(WX(11) + 0.75, WY(hh(10, 4) + B[1] / 2), WZ(4)); setText(lbRun, '+1 size'); setText(lbRise, '+' + f2(B[1])); lbRun.a = lbRise.a = st8; }
+        else if (st9 > 0) { seg3(run, WX(10), WY(hh(10, 4)) + 0.02, WZ(4), WX(10), WY(hh(10, 4)) + 0.02, WZ(4 + st9)); seg3(rise, WX(10), WY(hh(10, 4)), WZ(5), WX(10), WY(hh(10, 4) + B[2] * cl(st9 * 2 - 1)), WZ(5));
+            lbRun.p.set(WX(10) - 0.6, WY(hh(10, 4)) + 0.3, WZ(4.5)); lbRise.p.set(WX(10) + 0.75, WY(hh(10, 4) + B[2] / 2), WZ(5)); setText(lbRun, '+1 km'); setText(lbRise, '−' + f2(-B[2])); lbRun.a = lbRise.a = st9; }
+        else { run.visible = rise.visible = false; lbRun.a = lbRise.a = 0; }
+        // ----- intercept (step 11) -----
+        var ic = vis(11, 12) * ph(11.4, 11.6);
+        icpt.visible = ic > 0.01; icpt.position.set(WX(0), WY(B[0]), WZ(0)); icpt.scale.setScalar(Math.max(ic, 0.001));
+        lbIc.p.set(WX(0), WY(B[0]) + 0.5, WZ(0)); lbIc.a = ic; setText(lbIc, 'b₀ = ' + f2(B[0]) + ' at size 0, distance 0');
+        // ----- sum of squares meter (steps 6, 7, 12) -----
+        var ma = T >= 6 && T < 8 ? ph(6.4, 6.6) : vis(12, 13), sse = 0;
+        for (i = 0; i < N; i++) { var rr = YV[i] - hh(X1[i], X2[i]); sse += rr * rr; }
+        var mh = sse / SST * MH;
+        meter.visible = ghostM.visible = ma > 0.01; meter.scale.set(1, Math.max(mh * ma, 0.01), 1); meter.position.set(MX, 0, MZ0); ghostM.scale.set(1, MH, 1); ghostM.position.set(MX, 0, MZ0);
+        lbM.p.y = Math.max(mh / 2, 0.3); lbM.a = ma; setText(lbM, (step === 12 ? 'left over: ' : 'sum of squares: ') + f1(sse));
+        lbMT.a = ma * 0.85; setText(lbMT, 'total: ' + f1(SST));
+        var ea = vis(12, 13) * ph(12.3, 12.6);
+        expl.visible = ea > 0.01; expl.material.opacity = 0.75 * ea; expl.scale.set(1, Math.max((MH - mh) * ea, 0.01), 1); expl.position.set(MX, mh, MZ0);
+        lbEx.p.y = mh + (MH - mh) / 2; lbEx.a = ea; setText(lbEx, 'explained: ' + f1(SSR));
+        lbR2.a = vis(12, 13) * ph(12.6, 12.75); setText(lbR2, 'R² = ' + f2(R2) + ' · adjusted R² = ' + f2(AR2));
+        // ----- prediction (step 13) -----
+        var pg = vis(13, 14), pr = ph(13.3, 13.6);
+        probeSh.visible = pg > 0.01; probeSh.position.set(WX(PRED[0]), 0.03, WZ(PRED[1])); probeSh.scale.setScalar(Math.max(pg * 1.4, 0.001));
+        setPost(probeV, WX(PRED[0]), WZ(PRED[1]), WY(YP) * pr * pg, 0); probeDot.visible = pr * pg > 0.9; probeDot.position.set(WX(PRED[0]), WY(YP), WZ(PRED[1]));
+        lbPr.p.set(WX(PRED[0]), WY(YP) + 0.7, WZ(PRED[1])); lbPr.a = pg * ph(13.55, 13.7); setText(lbPr, 'size 9, 3 km → ŷ = ' + f1(YP));
+        // ----- coefficient uncertainty (step 14) and collinearity (step 16): planes from other samples -----
+        var g14 = vis(14, 15), g16 = vis(16, 17) * ph(16.45, 16.6), rg = rng(3);
+        for (k = 0; k < 8; k++) {
+            var z1 = Math.sqrt(-2 * Math.log(rg() + 1e-9)) * Math.cos(2 * Math.PI * rg()), z2 = Math.sqrt(-2 * Math.log(rg() + 1e-9)) * Math.cos(2 * Math.PI * rg());
+            if (g14 > 0) { var d1 = z1 * SE[1], d2 = z2 * SE[2]; ghosts[k].set([B[0] - d1 * X1M - d2 * X2M, B[1] + d1, B[2] + d2], 3, 15, 0, 11, g14 * ph(14.1 + k * 0.04, 14.3 + k * 0.04)); }
+            else if (g16 > 0) { var wv = 1.3 * Math.sin(T * 9 + k * 0.8); ghosts[k].set([B[0] - wv * FLR.a, B[1] - wv * FLR.b, B[2] + wv], 3, 15, 0, 11, g16); }
+            else ghosts[k].set(B, 3, 15, 0, 11, 0);
+        }
+        lbV.p.set(WX(11.5), WY(27), WZ(1)); lbV.a = g16; setText(lbV, 'x₁ and x₂ almost in a line → VIF very large');
+        // ----- F test towers (step 15) -----
+        var fa = vis(15, 16), fs = 0.05, rx = MX - 0.2, ex = MX + 1.6;
+        twR.visible = twE.visible = fa > 0.01; twR.scale.set(1, Math.max(MSR * fs * ph(15.15, 15.45), 0.01), 1); twR.position.set(rx, 0, MZ0); twE.scale.set(1, Math.max(S2 * fs * ph(15.45, 15.6), 0.01), 1); twE.position.set(ex, 0, MZ0);
+        lbTR.p.set(rx + 0.5, MSR * fs + 0.4, MZ0); lbTR.a = fa * ph(15.3, 15.45); setText(lbTR, 'MS regression ' + f1(MSR));
+        lbTE.p.set(ex + 0.5, S2 * fs + 0.45, MZ0); lbTE.a = fa * ph(15.55, 15.65); setText(lbTE, 'MS residual ' + f2(S2));
+        lbF.p.set(rx + 1.3, MSR * fs + 1.2, MZ0); lbF.a = fa * ph(15.65, 15.8); setText(lbF, 'F = ' + f1(MSR) + ' ÷ ' + f2(S2) + ' = ' + f1(FV));
+        lbZero.p.set(WX(15) + 0.3, WY(YM), 0); lbZero.a = un * (1 - ph(18.0, 18.1)); setText(lbZero, 'residual = 0');
+
+        // ----- table -----
+        var kind = step === 14 || step === 16 || step === 18 ? 'coef' : step === 15 ? 'anova' : 'data';
+        buildTable(kind);
+        if (kind === 'data') {
+            setFitCols(T >= 7.6);
+            var rev = step === 0 ? Math.floor((w - 0.06) / 0.06) + 1 : N, hl = [];
+            if (step === 1) hl = [Math.min(N - 1, Math.max(0, Math.floor((w - 0.1) / 0.06)))];
+            markRows(rev, hl);
+        } else markRows(99, step === 14 ? (w > 0.5 ? [1, 2] : []) : step === 15 ? [0] : []);
+
+        // ----- stats line -----
+        var st = '';
+        if (step === 0) st = '12 houses · 3 numbers each';
+        else if (step === 2) st = 'size alone: ŷ = ' + f2(SM1.a) + ' + ' + f2(SM1.b) + 'x₁ · R² = <b>' + f2(SM1.r2) + '</b>';
+        else if (step === 3) st = 'distance alone: ŷ = ' + f2(SM2.a) + ' + ' + f2(SM2.b) + 'x₂ · R² = <b>' + f2(SM2.r2) + '</b>';
+        else if (step === 4) st = 'correlation of size and distance: <b>' + f2(FLR.r) + '</b>';
+        else if (step === 6 || step === 7) st = 'sum of squared residuals = <b>' + f1(sse) + '</b>';
+        else if (step === 8) st = 'b₁ = <b>' + f2(B[1]) + '</b>: +1 size → price +' + f2(B[1]) + ', distance fixed';
+        else if (step === 9) st = 'b₂ = <b>' + f2(B[2]) + '</b>: +1 km → price −' + f2(-B[2]) + ', size fixed';
+        else if (step === 10) st = 'size alone <b>' + f2(SM1.b) + '</b> vs size with distance held <b>' + f2(B[1]) + '</b>';
+        else if (step === 12) st = 'R² = ' + f1(SSR) + ' ÷ ' + f1(SST) + ' = <b>' + f2(R2) + '</b>';
+        else if (step === 13) st = f2(B[0]) + ' + ' + f2(B[1]) + '×9 − ' + f2(-B[2]) + '×3 = <b>' + f1(YP) + '</b>';
+        else if (step === 15) st = 'F = <b>' + f1(FV) + '</b> on 2 and 9 df · p = <b>' + pt(PF) + '</b>';
+        else if (step === 16) st = 'here VIF = <b>' + f2(VIF) + '</b> (fine) · worry above 5 to 10';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var ISO = [[15.5, 8.8, 10], [4.6, 2.4, -4.4], -1.6], NEAR = [[15, 8.6, 9.5], [5.2, 2.9, -4.0], -1.4], FRONT = [[4.6, 3.4, 13.5], [4.6, 2.9, -4.4], -1.2];
+    var SIDE = [[25, 4, -5.6], [4.6, 2.9, -5.6], 0], TOP = [[4.6, 17.5, -1.2], [4.6, 0, -4.4], -1.6], MET = [[18.5, 9.8, 11.5], [7.2, 2.6, -3.4], -1.6];
+    var CAM = [ISO, ISO, FRONT, SIDE, TOP, ISO, MET, MET, NEAR, NEAR, FRONT, [[13.5, 8.8, 9.5], [2.6, 2.4, -4.4], -1.4], MET, ISO, ISO, MET, ISO, FRONT, ISO];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fY", "fB0", "fB1", "fX1", "fB2", "fX2"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

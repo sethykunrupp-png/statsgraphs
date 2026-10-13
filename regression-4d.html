@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Regression in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Y hat equals b zero plus b one times x">
+            <span class="p" id="fY">ŷ</span><span class="sym">=</span><span class="p" id="fB0">b<sub style="font-size:.6em">0</sub></span> <span class="sym">+</span> <span class="p" id="fB1">b<sub style="font-size:.6em">1</sub></span><span class="p" id="fXv">x</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- seven (x, y) pairs whose least-squares line is y = 1 + 1.5 x ----------
+    var PX = [1, 2, 3, 4, 5, 6, 7], PY0 = [3.5, 2, 6.5, 7, 9.5, 8, 12.5], N = 7, XM = 4, SXX = 28, B1 = 1.5, SSEMIN = 12;
+    var S_E = Math.sqrt(12 / 5), TSTAR = 2.571;      // residual standard deviation and the 95% t value for 5 degrees of freedom
+    var COL = ['#ff5c8a', '#ff9f43', '#ffe066', '#5cff9d', '#4dd2ff', '#b388ff', '#ff8fd0'];
+    var SXW = 1.3, SYW = 0.5;                        // world units per unit of x and of y
+    var X = function (x) { return x * SXW; }, Y = function (y) { return y * SYW; };
+    var MX = X(9) + 2.4, MH = 6;                     // the sum-of-squares meter
+
+    var STEPS = [
+        {
+                "t": "Two measurements per unit",
+                "n": "Each dot is one unit with an x value and a y value. As x goes up, y tends to go up too.",
+                "s": "7 pairs of (x, y)",
+                "on": [
+                        "fXv"
+                ]
+        },
+        {
+                "t": "Start with the simplest line",
+                "n": "Ignore x and predict the mean of y for everyone. This flat line is the starting point.",
+                "s": "ŷ = 7",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Residuals: how far off",
+                "n": "For each dot, measure the vertical distance to the line. That miss is the residual.",
+                "s": "residual = y − ŷ",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Square each residual",
+                "n": "Each residual grows into a square standing out from the wall. The meter adds up the area of all the squares.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Tilt the line to shrink the squares",
+                "n": "Rotate the line and watch the total area. It falls, reaches a minimum, and rises again if we tilt too far. The line with the smallest total is the least-squares line.",
+                "s": "",
+                "on": [
+                        "fB1"
+                ]
+        },
+        {
+                "t": "Read the line",
+                "n": "The slope b₁ says y rises 1.5 for each extra 1 of x. The intercept b₀ is where the line meets x = 0.",
+                "s": "ŷ = 1 + 1.5x",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fXv"
+                ]
+        },
+        {
+                "t": "R²: the share explained",
+                "n": "The flat line left 75 of squared error. The fitted line leaves 12. The part removed, 63, is what x explains.",
+                "s": "R² = 63 ÷ 75 = <b>0.84</b>",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Use the line to predict",
+                "n": "Pick an x, go up to the line and across to read ŷ. Inside the range of the data this is safe. Beyond it, the line is only a guess.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fXv"
+                ]
+        },
+        {
+                "t": "How sure is the slope?",
+                "n": "Another sample would give a slightly different line. The faint lines show the spread to expect. The slope is 1.5, give or take 0.29. That is far from zero, so the upward trend is real.",
+                "s": "t = 1.5 ÷ 0.29 = <b>5.1</b> · p ≈ 0.004",
+                "on": [
+                        "fB1"
+                ]
+        },
+        {
+                "t": "A confidence band for the line",
+                "n": "Wrap the plausible lines in a band. It is narrowest at the mean of x and flares out toward the ends, where the line is less certain.",
+                "s": "narrowest at x̄ = 4",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "A wider band for one new point",
+                "n": "A single new observation also scatters around the line, so its band is much wider than the band for the line itself.",
+                "s": "new y = line ± about 4.3 near the centre",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Check the residuals",
+                "n": "Untilt the picture so the line lies flat. What is left is the residual plot. Points scattered evenly around zero, with no curve and no funnel, mean a straight line was a fair choice.",
+                "s": "residuals: +1, −2, +1, 0, +1, −2, +1",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "One outlier can swing the line",
+                "n": "Drag one point far from the pattern. The line chases it, the slope collapses and R² falls. Plot the data before trusting the numbers.",
+                "s": "",
+                "on": [
+                        "fB1",
+                        "fB0"
+                ]
+        },
+        {
+                "t": "What the line does and does not say",
+                "n": "Here x and y move together strongly. That is association. It does not prove that x causes y, and the line should not be stretched beyond the data.",
+                "s": "r = √0.84 = <b>0.92</b> · association, not cause",
+                "on": [
+                        "fY",
+                        "fB0",
+                        "fB1",
+                        "fXv"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    grid.position.set(6, -0.03, 3);
+
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), tickGeoH = new THREE.BoxGeometry(0.3, 0.04, 0.04), lbYt = [];
+    var axis = bar('#3c6d80', 0.5); setBar(axis, 0, 0, 0, X(9.6));
+    var yAxis = post('#3c6d80'); setPost(yAxis, 0, 0, Y(14.6));
+    for (var k = 0; k <= 9; k++) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(X(k), 0, 0); scene.add(tk); label(String(k), X(k), -0.5, 0, 'tick').a = 0.8; }
+    for (k = 2; k <= 14; k += 2) { var tk2 = new THREE.Mesh(tickGeoH, mat('#5d9ab3')); tk2.position.set(0, Y(k), 0); scene.add(tk2); lbYt.push(label(String(k), -0.5, Y(k), 0, 'tick')); }
+    label('x', X(9.9), 0, 0, 'key').a = 1; var lbYn = label('y', 0, Y(15.3), 0, 'key');
+
+    var sph = new THREE.SphereGeometry(0.2, 20, 14), pts = [], res = [], sq = [];
+    var sqGeo = new THREE.PlaneGeometry(1, 1); sqGeo.rotateY(Math.PI / 2);   // a square standing out from the wall
+    for (var i = 0; i < N; i++) {
+        var p = new THREE.Mesh(sph, mat(COL[i])); scene.add(p); pts.push(p);
+        res.push(post(COL[i], 1.3));
+        var s = new THREE.Mesh(sqGeo, mat(COL[i], 0.45)); s.add(new THREE.LineSegments(new THREE.EdgesGeometry(sqGeo), new THREE.LineBasicMaterial({ color: COL[i] }))); scene.add(s); sq.push(s);
+    }
+    var line = bar('#00ffff', 1.3), run = bar('#ffffff', 1.3), rise = post('#ffffff', 1.5), icpt = new THREE.Mesh(sph, mat('#ffffff')); scene.add(icpt);
+    var meter = box('#ffb454', 0.85, true), meterGhost = box('#ffffff', 0.08, true), explained = box('#00ffff', 0, false), minMark = bar('#ffffff', 1);
+    meterGhost.scale.set(1, MH, 1); meterGhost.position.set(MX, 0, 0);
+    var probeV = post('#ffb454', 1.4), probeH = bar('#ffb454', 1), probeDot = new THREE.Mesh(sph, mat('#ffb454')); scene.add(probeDot);
+    // other lines we might have got from another sample, and the bands that wrap them
+    var rn = rng(5), gauss = function () { return Math.sqrt(-2 * Math.log(rn() + 1e-9)) * Math.cos(2 * Math.PI * rn()); }, fan = [];
+    for (k = 0; k < 14; k++) fan.push({ m: bar('#00ffff', 0.5), db: gauss() * S_E / Math.sqrt(SXX), dl: gauss() * S_E / Math.sqrt(N) });
+    var band = strip(41, '#00ffff', 0), pband = strip(41, '#b388ff', 0);
+    var lbEq = label('', 0, 0, 0, 'key'), lbMeter = label('', MX + 1.3, 0, 0.5, 'eq', true), lbRun = label('+1', X(4.5), Y(7) - 0.35, 0, ''), lbRise = label('+1.5', X(5) + 0.55, Y(7.75), 0, ''),
+        lbIc = label('b₀ = 1', 0.9, Y(1) - 0.35, 0, ''), lbExp = label('', MX + 1.3, 0, 0.5, 'key', true), lbR2 = label('', MX + 0.5, MH + 0.6, 0.5, 'key'), lbProbe = label('', 0, 0, 0, 'eq'), lbTotal = label('', MX + 0.5, MH + 0.6, 0.5, '');
+    var lbBand = label('95% band for the line', X(7.6), Y(9.2), 0, 'key', true), lbPred = label('95% band for one new point', X(2.4), Y(11.6), 0, ''), lbZero = label('residual = 0', X(8.9), Y(7) + 0.4, 0, 'key'), lbFan = label('lines from other samples', X(1.3), Y(11.5), 0, '');
+    lbPred.el.style.color = '#c9aaff';
+    lbR2.el.style.fontSize = '17px'; lbEq.el.style.fontSize = '17px';
+
+    function update() {
+        var i;
+        // ----- the data now: one point slides away in step 13 and comes back in step 14 -----
+        var py = PY0.slice(); py[6] = lerp(lerp(12.5, 2, ph(12.15, 12.8)), 12.5, ph(13.05, 13.4));
+        var ym = 0, sxy = 0, sst = 0; for (i = 0; i < N; i++) ym += py[i] / N;
+        for (i = 0; i < N; i++) { sxy += (PX[i] - XM) * (py[i] - ym); sst += (py[i] - ym) * (py[i] - ym); }
+        var bfit = sxy / SXX, b = T < 5 ? lerp(lerp(0, 2.2, ph(4.1, 4.6)), B1, ph(4.65, 4.95)) : bfit, b0 = ym - b * XM;
+        var fy = function (x) { return ym + b * (x - XM); };
+        var un = ph(11.15, 11.7) * (1 - ph(12.0, 12.12));                     // untilt: turn the picture into a residual plot
+        var YY = function (x, y) { return Y(y - un * b * (x - XM)); };
+
+        var sse = 0;
+        for (i = 0; i < N; i++) {
+            var a = ph(0.05 + i * 0.09, 0.22 + i * 0.09); pts[i].scale.setScalar(Math.max(a, 0.001)); pts[i].visible = a > 0; pts[i].position.set(X(PX[i]), YY(PX[i], py[i]), 0);
+            var yh = fy(PX[i]), r = py[i] - yh, ar = Math.abs(r), rg = ph(2.1 + i * 0.1, 2.25 + i * 0.1), sg = ph(3.1 + i * 0.1, 3.3 + i * 0.1);
+            sse += r * r;
+            setPost(res[i], X(PX[i]), 0, Y(ar) * rg, YY(PX[i], Math.min(py[i], yh)));
+            var side = Y(ar);
+            sq[i].visible = sg > 0 && side > 0.01; sq[i].scale.set(1, Math.max(side, 0.001), Math.max(side * sg, 0.001)); sq[i].position.set(X(PX[i]), YY(PX[i], (py[i] + yh) / 2), side * sg / 2);
+        }
+        // the line
+        var lg = ph(1.1, 1.6), x1 = 0.2, x2 = lerp(0.2, T >= 7 ? 9.4 : 8.6, lg);
+        setSeg(line, X(x1), YY(x1, fy(x1)), X(x2), YY(x2, fy(x2)), 0); line.visible = lg > 0;
+        lbEq.p.set(X(8.2), YY(8.2, fy(8.2)) + 0.7, 0); lbEq.a = (ph(1.55, 1.7) * (1 - ph(7.0, 7.1)) + ph(8.0, 8.1)) * (1 - un);
+        setText(lbEq, T < 4.1 ? 'ŷ = 7 (the mean of y)' : 'ŷ = ' + num(b0, 1) + ' + ' + num(b, 2) + 'x');
+        for (i = 0; i < lbYt.length; i++) lbYt[i].a = 0.8 * (1 - un); lbYn.a = 1 - un; lbZero.a = un;
+
+        // sum-of-squares meter
+        var mg = ph(3.75, 3.95), mh = sse / sst * MH;
+        meter.visible = mg > 0; meter.scale.set(1, Math.max(mh * mg, 0.01), 1); meter.position.set(MX, 0, 0);
+        meterGhost.visible = mg > 0; lbTotal.a = mg * 0.8 * (1 - ph(6.3, 6.4)); setText(lbTotal, 'total: ' + num(sst, 0));
+        lbMeter.p.y = Math.max(mh / 2, 0.3); lbMeter.a = mg; setText(lbMeter, (T >= 6.1 ? 'left over: ' : 'sum of squares: ') + num(sse));
+        var mm = ph(4.97, 5.0) * (1 - ph(12.0, 12.1)); setBar(minMark, MX - 0.3, SSEMIN / 75 * MH, 0.5, 1.6 * mm);
+
+        // slope and intercept
+        var tr = ph(5.15, 5.45), ic = ph(5.5, 5.75);
+        setBar(run, X(4), Y(7), 0.02, X(1) * tr); setPost(rise, X(5), 0.02, Y(1.5) * cl(tr * 2 - 1), Y(7)); lbRun.a = lbRise.a = tr * (1 - ph(7.0, 7.1));
+        if (T >= 7) { run.visible = false; rise.visible = false; }
+        icpt.visible = ic > 0 && T < 7; icpt.position.set(0, Y(b0), 0); icpt.scale.setScalar(Math.max(ic, 0.001)); lbIc.a = ic * (1 - ph(7.0, 7.1));
+
+        // R squared
+        var eg = ph(6.1, 6.4), r2 = 1 - sse / sst;
+        explained.visible = eg > 0; explained.material.opacity = 0.75 * eg; explained.scale.set(1, Math.max((MH - mh) * eg, 0.01), 1); explained.position.set(MX, mh, 0);
+        lbExp.p.y = mh + (MH - mh) / 2; lbExp.a = eg; setText(lbExp, 'explained: ' + num(sst - sse)); lbR2.a = ph(6.45, 6.6); setText(lbR2, 'R² = ' + num(sst - sse, 0) + ' ÷ ' + num(sst, 0) + ' = ' + r2.toFixed(2));
+
+        // prediction probe
+        var pg = ph(7.05, 7.15) * (1 - ph(8.0, 8.1)), xp = lerp(lerp(2, 6, ph(7.15, 7.5)), 9, ph(7.55, 7.95)), yp = fy(xp), outside = xp > 7.001, pc = outside ? '#ff5c8a' : '#ffb454';
+        setPost(probeV, X(xp), 0.03, Y(yp) * pg); setBar(probeH, 0, Y(yp), 0.03, X(xp) * pg); probeDot.visible = pg > 0; probeDot.position.set(X(xp), Y(yp), 0.03);
+        probeV.material.color.set(pc); probeH.material.color.set(pc); probeDot.material.color.set(pc);
+        lbProbe.p.set(X(xp) - 0.2, Y(yp) + 0.75, 0); lbProbe.a = pg; lbProbe.el.style.color = pc;
+        setText(lbProbe, 'x = ' + num(xp) + ' → ŷ = ' + num(yp) + (outside ? ' (beyond the data)' : ''));
+
+        // lines from other samples, then the bands
+        var fo = 1 - ph(10.0, 10.1);
+        for (i = 0; i < 14; i++) {
+            var f = fan[i], fa = ph(8.15 + i * 0.045, 8.27 + i * 0.045) * fo, fb = B1 + f.db, fc = 7 + f.dl;
+            setSeg(f.m, X(0.2), Y(fc + fb * (0.2 - XM)), X(lerp(0.2, 8.8, fa)), Y(fc + fb * (lerp(0.2, 8.8, fa) - XM)), -0.02); f.m.visible = fa > 0; f.m.material.opacity = 0.4 * fo;
+        }
+        lbFan.a = ph(8.6, 8.75) * fo;
+        var ba = ph(9.15, 9.5) * (1 - ph(11.0, 11.1)), pa = ph(10.15, 10.5) * (1 - ph(11.0, 11.1));
+        band.m.visible = ba > 0; band.m.material.opacity = 0.3 * ba; pband.m.visible = pa > 0; pband.m.material.opacity = 0.16 * pa;
+        for (i = 0; i < 41; i++) {
+            var xx = 0.2 + 8.6 * i / 40, lev = (xx - XM) * (xx - XM) / SXX, h1 = TSTAR * S_E * Math.sqrt(1 / N + lev), h2 = TSTAR * S_E * Math.sqrt(1 + 1 / N + lev), yc = 1 + 1.5 * xx;
+            band.set(i, X(xx), Y(yc + h1), -0.04, X(xx), Y(yc - h1), -0.04); pband.set(i, X(xx), Y(yc + h2), -0.06, X(xx), Y(Math.max(yc - h2, -1)), -0.06);
+        }
+        band.done(); pband.done(); lbBand.a = ph(9.5, 9.65) * (1 - ph(11.0, 11.1)); lbPred.a = ph(10.5, 10.65) * (1 - ph(11.0, 11.1));
+
+        if (step === 3) setStats('sum of squared residuals = <b>' + num(sse) + '</b>');
+        else if (step === 4) setStats('slope ' + num(b, 2) + ' → sum of squares <b>' + num(sse) + '</b>');
+        else if (step === 7) setStats('ŷ = 1 + 1.5 × ' + num(xp) + ' = <b>' + num(yp) + '</b>' + (outside ? ' <span class="dim">(extrapolating: risky)</span>' : ''));
+        else if (step === 12) setStats('slope <b>' + num(b, 2) + '</b> · R² = <b>' + r2.toFixed(2) + '</b>');
+    }
+
+    // ---------- camera ----------
+    var WALL = [[6, 4.5, 17], [6, 3.6, 0]], DEEP = [[17, 8, 19], [8.5, 3, 1], 0], METER = [[14, 7, 21], [9, 3.2, 1], 0.5];
+    var FRONTV = [[8.5, 4.6, 21], [8.5, 3.8, 0], 0.8];
+    var CAM = [WALL, WALL, WALL, DEEP, METER, [[9.5, 5, 20], [8, 3.6, 0], 0.5], METER, FRONTV, FRONTV, FRONTV, FRONTV, FRONTV, METER, METER];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fY", "fB0", "fB1", "fXv"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

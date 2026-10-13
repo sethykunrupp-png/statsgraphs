@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Type I and Type II Errors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.mx td, #tbl table.mx th { text-align: center; white-space: normal; padding: 8px 8px; vertical-align: middle; }
+    #tbl table.mx tbody th { color: var(--cyan); text-align: left; border-bottom: 0; }
+    #tbl table.mx td { border: 1px solid rgba(0,255,255,0.18); line-height: 1.35; }
+    #tbl table.mx td span { font-size: 12px; color: var(--muted); }
+    #tbl table.mx td.ce span { color: #04121c; }
+    #tbl .hc { opacity: 0; }
+    #tbl table.av td { text-align: left; }
+    #tbl table.av th span { font-size: 12px; color: var(--muted); font-weight: 400; }
+    #tbl table.av ul { margin: 0; padding-left: 18px; }
+    #tbl table.av li { margin: 3px 0; }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Power equals one minus beta">
+            <span class="p" id="fP">Power</span><span class="sym">=</span>1 <span class="sym">−</span> <span class="p" id="fB">β</span><span class="sym" style="margin-left:12px">·</span><span class="p" id="fA" style="font-style:normal;font-size:.8em">α = 5%</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- Type I and Type II errors: two worlds, one cut-off ----------
+    var XS = 0.8, XC = 52, HS = 24;                  // world units per value, centre value, height per unit of density
+    var wx = function (v) { return (v - XC) * XS; };
+    var SQ2PI = Math.sqrt(2 * Math.PI);
+    function dn(v, m, s) { var z = (v - m) / s; return Math.exp(-z * z / 2) / (s * SQ2PI); }
+    function Phi(z) {
+        var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2;
+        var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2;
+    }
+    function invPhi(p) { var lo = -6, hi = 6; for (var i = 0; i < 46; i++) { var mid = (lo + hi) / 2; if (Phi(mid) < p) lo = mid; else hi = mid; } return (lo + hi) / 2; }
+    var STEPS = [
+        {
+                "t": "Two ways to be wrong",
+                "n": "A test ends with one of two decisions, while the truth is one of two states. Two of the four outcomes are mistakes. In a court: convicting an innocent person, or letting a guilty one go.",
+                "s": "H₀: nothing has changed · H₁: something has",
+                "on": []
+        },
+        {
+                "t": "One sample, one sample mean",
+                "n": "We test a claim about a population mean using one sample. Its mean, X̄, lands at one point on the line. The question is which population it came from: one whose mean is 50, as H₀ claims, or one whose mean is something else.",
+                "s": "your sample: X̄ = 52.4",
+                "on": []
+        },
+        {
+                "t": "If H₀ is true",
+                "n": "Suppose the population mean really is 50. A sample mean would still wobble around 50 from sample to sample. This curve shows where X̄ could land, with a standard error of 2.",
+                "s": "H₀: population mean = 50",
+                "on": []
+        },
+        {
+                "t": "Draw the line",
+                "n": "Choose a cut-off before looking at the data. If the sample mean lands beyond it, we reject H₀. Here the line is at 53.3, so 5% of the H₀ curve lies beyond it.",
+                "s": "cut-off = 50 + 1.645 × 2 = <b>53.3</b>",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "Type I error: a false alarm",
+                "n": "Those 5% are samples that cross the line although H₀ is true. Rejecting H₀ then is a Type I error. Its chance is α, the size of this tail, and we choose it.",
+                "s": "α = P(reject H₀ when H₀ is true) = <b>0.05</b>",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "Watch it happen",
+                "n": "Draw 100 samples from a world where H₀ is true. About 5 of their means land beyond the line by pure chance. Each red dot is a false alarm.",
+                "s": "",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "If H₁ is true",
+                "n": "Now suppose the population mean is really 54. The same sample mean would then pile up around 54 instead. The two curves overlap, and the overlap is where mistakes happen.",
+                "s": "H₁: true μ = 54",
+                "on": []
+        },
+        {
+                "t": "Type II error: a miss",
+                "n": "Many samples from the true-54 world still land left of the line. We would keep H₀ although it is false. That is a Type II error, and its chance is β.",
+                "s": "",
+                "on": [
+                        "fB"
+                ]
+        },
+        {
+                "t": "Power: catching the real effect",
+                "n": "The rest of the amber curve lies beyond the line. Those samples correctly reject H₀. That share is the power of the test, 1 − β.",
+                "s": "",
+                "on": [
+                        "fP",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Moving the line trades one error for the other",
+                "n": "Push the line right and false alarms become rarer but misses more common. Pull it left and the opposite happens. With the sample size fixed, you cannot shrink both.",
+                "s": "",
+                "on": [
+                        "fA",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Bigger samples shrink both",
+                "n": "Take 4 times as many observations. The standard error halves, both curves narrow, the overlap shrinks and power rises, while α stays at 5%.",
+                "s": "",
+                "on": [
+                        "fP",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Bigger effects are easier to catch",
+                "n": "Back to the first sample size. If the true mean is farther from 50, the amber curve moves away, β falls and power rises.",
+                "s": "",
+                "on": [
+                        "fP",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Plan the sample size first",
+                "n": "To keep misses rare, choose n before collecting data. Here each value has a standard deviation of 10 and the effect worth finding is 4. With n = 25 the power is only 0.64. With n = 39 it reaches 0.80.",
+                "s": "",
+                "on": [
+                        "fP",
+                        "fB"
+                ]
+        },
+        {
+                "t": "Many tests, many false alarms",
+                "n": "Each test carries a 5% false-alarm risk. Run 20 tests where H₀ is true and the chance of at least one false alarm is 64%. Dividing α by the number of tests (Bonferroni) brings the overall risk back to about 5%.",
+                "s": "",
+                "on": [
+                        "fA"
+                ]
+        },
+        {
+                "t": "How to avoid each error",
+                "n": "You cannot make both errors zero. Decide which mistake costs more, set α to match before seeing the data, then plan the sample size for enough power, usually 80%.",
+                "s": "α ≈ 5% · power ≥ 80%",
+                "on": [
+                        "fP",
+                        "fB",
+                        "fA"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var M0 = 50, PINK = '#ff5c8a', AMB = '#ffb454', GRN = '#5cff9d', VIO = '#b388ff';
+
+    // ----- the decision table -----
+    var CELL = {}, tblKind = '';
+    function buildTable(kind) {
+        if (kind === tblKind) return; tblKind = kind;
+        if (kind === 'mx') {
+            $('tbl').innerHTML = '<div class="cap">Four possible outcomes of a test</div><table class="mx"><thead><tr><th>reality ↓ · decision →</th><th>do not reject H₀</th><th>reject H₀</th></tr></thead><tbody>' +
+                '<tr><th>H₀ true</th><td id="c00"></td><td id="c01"></td></tr><tr><th>H₀ false</th><td id="c10"></td><td id="c11"></td></tr></tbody></table>';
+            CELL = { c00: $('c00'), c01: $('c01'), c10: $('c10'), c11: $('c11') };
+        } else {
+            var li = function (a) { return '<ul>' + a.map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul>'; };
+            $('tbl').innerHTML = '<div class="cap">How to avoid each error</div><table class="mx av"><tbody>' +
+                '<tr><th>Type I<br><span>false alarm</span></th><td>' + li(['Set α before seeing the data; use 1% when a false alarm is costly', 'Avoid running many tests, or divide α by the number of tests', 'Do not keep adding data until the result turns significant', 'Repeat the study before trusting a surprise']) + '</td></tr>' +
+                '<tr><th>Type II<br><span>miss</span></th><td>' + li(['Use a larger sample, planned with a power calculation', 'Reduce noise: better measurement, paired or matched designs', 'Use a one-sided test only if the direction was fixed in advance', 'Never read “not significant” as “no effect”']) + '</td></tr></tbody></table>';
+        }
+    }
+    function cell(id, title, val, on, show) { var h = '<b>' + title + '</b><br><span>' + val + '</span>'; var c = CELL[id]; if (c.innerHTML !== h) c.innerHTML = h; var k = (on ? 'ce' : '') + (show ? '' : ' hc'); if (c.className !== k) c.className = k; }
+
+    // ----- axis -----
+    var axis = bar('#3c6d80', 0.5); setBar(axis, wx(41), 0, 0, wx(65) - wx(41));
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04);
+    for (var v = 42; v <= 64; v += 2) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(wx(v), 0, 0); scene.add(tk); label(String(v), wx(v), -0.5, 0, 'tick').a = 0.85; }
+    label('sample mean X̄', wx(66.2), 0, 0, 'key').a = 1;
+
+    // ----- curves and shaded areas -----
+    var NP = 161, c0 = polyline(NP, '#00ffff'), f0 = strip(NP, '#00ffff', 0), c1 = polyline(NP, AMB), f1 = strip(NP, AMB, 0);
+    var aSh = strip(61, PINK, 0), bSh = strip(61, VIO, 0), pSh = strip(61, GRN, 0);
+    function curveSet(pl, st, m, s, z) { for (var i = 0; i < NP; i++) { var x = 40 + 26 * i / (NP - 1), h = dn(x, m, s) * HS; pl.set(i, wx(x), h, z); st.set(i, wx(x), h, z - 0.02, wx(x), 0, z - 0.02); } st.done(); }
+    function area(st, a, b, m, s, z) { for (var i = 0; i < 61; i++) { var x = a + (b - a) * i / 60; st.set(i, wx(x), dn(x, m, s) * HS, z, wx(x), 0, z); } st.done(); }
+    var cutL = post('#ffffff', 1.8), m0L = post('#00ffff', 1.2), m1L = post(AMB, 1.2);
+    var lbH0 = label('', 0, 0, 0, 'key'), lbH1 = label('', 0, 0, 0, ''), lbCut = label('', 0, 0, 0, ''), lbA = label('', 0, 0, 0, ''), lbB = label('', 0, 0, 0, ''), lbP = label('', 0, 0, 0, ''), lbRain = label('', 0, 0, 0, 'eq');
+    lbH1.el.style.color = AMB; lbA.el.style.color = '#ff8fae'; lbB.el.style.color = '#c9aaff'; lbP.el.style.color = GRN;
+    [lbA, lbB, lbP, lbH1, lbCut].forEach(function (l) { l.el.style.fontWeight = '600'; l.el.style.fontSize = '14px'; });
+
+    // ----- 100 sample means drawn from the H0 world -----
+    var ND = 100, r0 = rng(3), order = []; for (var i = 0; i < ND; i++) order.push(i);
+    for (i = ND - 1; i > 0; i--) { var j = Math.floor(r0() * (i + 1)), t = order[i]; order[i] = order[j]; order[j] = t; }
+    var sph = new THREE.SphereGeometry(0.19, 14, 10), dCy = mat('#00ffff', 0.9), dPk = mat(PINK, 1), dots = [], bins = {};
+    for (i = 0; i < ND; i++) {
+        var xv = M0 + 2 * invPhi((i + 0.5) / ND), b = Math.round(xv / 0.5), n = bins[b] || 0; bins[b] = n + 1;
+        var d = new THREE.Mesh(sph, dCy); d.visible = false; scene.add(d);
+        dots.push({ m: d, x: wx(b * 0.5), y: 0.22 + n * 0.48, v: b * 0.5, t0: 4.1 + order[i] * 0.0065 });
+    }
+
+    var X1 = 52.4, sDot = new THREE.Mesh(new THREE.SphereGeometry(0.32, 20, 14), mat('#ffffff')), sStem = post('#ffffff', 1.2); scene.add(sDot);
+    var lbSamp = label('', wx(X1), 2.1, 0.3, 'key'), lbQ0 = label('population mean 50?', wx(50), 4.4, 0, ''), lbQ1 = label('or 54?', wx(54), 4.4, 0, '');
+    lbQ1.el.style.color = AMB;
+    var tests = []; for (i = 0; i < 20; i++) { var cb = box('#00ffff', 0.6, true); cb.scale.set(0.5, 0.5, 0.5); cb.position.set(wx(45.5) + i * 0.68, 0.05, 3.2); cb.visible = false; tests.push(cb); }
+    var lbTests = label('', wx(52), 0.05, 4.7, 'eq');
+
+    function update() {
+        var i;
+        // two steps added at the start of the story and two near the end; the original timeline is replayed in between
+        var RT = T, pr = function (a, b) { var x = (RT - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+        var ost = step === 0 ? 0 : step === 1 ? 0 : step <= 11 ? step - 1 : 11;
+        T = step === 0 ? RT : step === 1 ? 0.999 : step <= 11 ? RT - 1 : 11.6;
+        // ----- the situation now -----
+        var se = lerp(lerp(2, 1, ph(9.15, 9.6)), 2, ph(10.02, 10.12));
+        var mu1 = lerp(lerp(54, 58, ph(10.2, 10.75)), 54, ph(11.05, 11.4));
+        var alpha = T < 8 ? 0.05 : lerp(lerp(lerp(0.05, 0.01, ph(8.1, 8.45)), 0.10, ph(8.5, 8.85)), 0.05, ph(8.9, 8.98));
+        var nPlan = lerp(25, 39, pr(12.15, 12.75));
+        if (RT >= 12) se = lerp(10 / Math.sqrt(nPlan), 2, pr(13.05, 13.3));
+        if (RT >= 13) alpha = lerp(lerp(0.05, 0.0025, pr(13.5, 13.85)), 0.05, pr(14.02, 14.2));
+        var cut = M0 + invPhi(1 - alpha) * se, beta = Phi((cut - mu1) / se), power = 1 - beta;
+
+        // H0 curve
+        var g0 = ph(1.1, 1.6); curveSet(c0, f0, M0, se, 0); c0.done(Math.floor(NP * g0)); f0.m.material.opacity = 0.12 * g0;
+        var top0 = dn(M0, M0, se) * HS;
+        setPost(m0L, wx(M0), 0, (top0 + 0.4) * g0); lbH0.p.set(wx(M0), top0 + 0.85, 0); lbH0.a = g0; setText(lbH0, 'population mean 50 (H₀)'); lbH0.p.x = wx(M0) - 1.6;
+        // cut-off
+        var cg = ph(2.1, 2.4); setPost(cutL, wx(cut), 0.05, (top0 * 0.8 + 1.2) * cg);
+        lbCut.p.set(wx(cut) + 0.25, top0 * 0.8 + 1.0, 0); lbCut.left = true; lbCut.a = cg; setText(lbCut, 'cut-off ' + cut.toFixed(1) + ' · reject H₀ to the right');
+        // alpha
+        var ag = ph(3.1, 3.4); aSh.m.visible = ag > 0; aSh.m.material.opacity = 0.65 * ag; area(aSh, cut, 66, M0, se, 0.04);
+        lbA.p.set(wx(cut) + 1.6, dn(cut, M0, se) * HS * 0.5 + 0.35, 0.1); lbA.a = ag; setText(lbA, 'α = ' + alpha.toFixed(3));
+        // rain of samples under H0
+        var dg = 1 - ph(5.0, 5.2), beyond = 0, landed = 0;
+        for (i = 0; i < ND; i++) {
+            var dd = dots[i], f = ph(dd.t0, dd.t0 + 0.12), out = dd.v > cut;
+            dd.m.visible = T >= dd.t0 && dg > 0; dd.m.position.set(dd.x, lerp(11, dd.y * se / 2 + 0 * se, f * f), 0.25); dd.m.scale.setScalar(Math.max(dg, 0.001));
+            dd.m.material = f >= 1 && out ? dPk : dCy; if (f >= 1) { landed++; if (out) beyond++; }
+        }
+        lbRain.p.set(wx(60), 3.2, 0); lbRain.a = (T >= 4.2 ? 1 : 0) * dg; setText(lbRain, beyond + ' of ' + landed + ' landed beyond the line');
+        // H1 curve
+        var g1 = ph(5.1, 5.6); curveSet(c1, f1, mu1, se, -0.6); c1.done(Math.floor(NP * g1)); f1.m.material.opacity = 0.1 * g1; c1.m.visible = g1 > 0;
+        var top1 = dn(mu1, mu1, se) * HS;
+        setPost(m1L, wx(mu1), -0.6, (top1 + 0.4) * g1); lbH1.p.set(wx(mu1) + 0.3, top1 + 0.85, -0.6); lbH1.a = g1; setText(lbH1, 'population mean ' + mu1.toFixed(0) + ' (H₁)'); lbH1.left = true;
+        // beta and power
+        var bg = ph(6.1, 6.4), pg = ph(7.1, 7.4);
+        bSh.m.visible = bg > 0; bSh.m.material.opacity = 0.6 * bg; area(bSh, 40, cut, mu1, se, -0.55);
+        pSh.m.visible = pg > 0; pSh.m.material.opacity = 0.45 * pg; area(pSh, cut, 66, mu1, se, -0.56);
+        lbB.p.set(wx(cut) - 1.3, dn(cut, mu1, se) * HS * 0.45 + 0.3, -0.5); lbB.a = bg; setText(lbB, 'β = ' + beta.toFixed(3));
+        lbP.p.set(wx(mu1) + 1.4, top1 * 0.45, -0.5); lbP.a = pg; setText(lbP, 'power = ' + power.toFixed(3));
+
+        // ----- the decision table -----
+        buildTable(step === 14 ? 'av' : 'mx');
+        var st = ost, rv = Math.floor(5 * ph(0.15, 0.9));
+        var hi = { 0: [], 1: [], 2: [], 3: ['c01'], 4: ['c01'], 5: [], 6: ['c10'], 7: ['c11'], 8: ['c01', 'c10'], 9: ['c10', 'c11'], 10: ['c10', 'c11'], 11: ['c01', 'c10', 'c11'] }[st];
+        var known = st >= 3, kb = st >= 6;
+        if (tblKind === 'mx') {
+        cell('c00', 'Correct', known ? '1 − α = ' + (1 - alpha).toFixed(3) : 'keep H₀, and it is true', false, st > 0 || rv >= 1);
+        cell('c01', 'Type I error', known ? 'false alarm · α = ' + alpha.toFixed(3) : 'false alarm', hi.indexOf('c01') >= 0, st > 0 || rv >= 2);
+        cell('c10', 'Type II error', kb ? 'miss · β = ' + beta.toFixed(3) : 'miss', hi.indexOf('c10') >= 0, st > 0 || rv >= 3);
+        cell('c11', 'Correct', st >= 7 ? 'power = 1 − β = ' + power.toFixed(3) : 'catch the real effect', hi.indexOf('c11') >= 0, st > 0 || rv >= 4);
+        }
+
+        if (st >= 6 && st !== 11 && step < 12) setStats('α = <b>' + alpha.toFixed(3) + '</b> · β = <b>' + beta.toFixed(3) + '</b> · power = <b>' + power.toFixed(3) + '</b>' + (st === 9 ? ' <span class="dim">(n × 4)</span>' : ''));
+        if (step === 5) setStats(beyond + ' false alarms in ' + landed + ' samples <span class="dim">(expected about 5)</span>');
+        // ----- the one sample -----
+        var sa = pr(1.1, 1.5), sx = sa > 0 ? 1 : 0;
+        sDot.visible = sa > 0; sDot.position.set(wx(X1), lerp(9, 0.32, sa * sa), 0.3); setPost(sStem, wx(X1), 0.3, 0);
+        lbSamp.a = pr(1.45, 1.6) * (RT < 5 ? 1 : 0); setText(lbSamp, RT < 3 ? 'your sample: X̄ = 52.4' : 'X̄ = 52.4: left of the line, keep H₀');
+        lbSamp.p.y = 1.2;
+        lbQ0.a = lbQ1.a = pr(1.6, 1.75) * (1 - pr(1.95, 2.05));
+        // ----- many tests -----
+        var tg = pr(13.1, 13.5), ta = 1 - pr(14.0, 14.1);
+        for (i = 0; i < 20; i++) { var on = cl(tg * 22 - i); tests[i].visible = on > 0 && ta > 0; tests[i].scale.setScalar(0.5 * Math.max(on, 0.01)); tests[i].material.color.set(i === 13 && on >= 1 && RT < 13.5 ? PINK : '#00ffff'); }
+        lbTests.a = tg * ta; setText(lbTests, RT < 13.5 ? '20 tests, H₀ true in all: P(at least one false alarm) = 1 − 0.95²⁰ = 64%' : 'Bonferroni: α = 0.05 ÷ 20 = 0.0025 per test → about 5% overall');
+        if (step === 12) setStats('n = ' + Math.round(nPlan) + ' → standard error ' + se.toFixed(2) + ' → power = <b>' + power.toFixed(2) + '</b>');
+        else if (step === 13) setStats('cut-off ' + cut.toFixed(1) + ' · α per test = <b>' + alpha.toFixed(4) + '</b>');
+        T = RT;
+    }
+    // ---------- camera ----------
+    var V = [[1.5, 5.6, 19.5], [1.5, 3, 0], -2.6], TALL = [[1.5, 8, 24], [1.5, 4.6, 0], -2.6];
+    var HIGHV = [[1.5, 6.5, 21], [1.5, 2.2, 1.2], -2.6];
+    var CAM = [V, V, V, V, V, V, V, V, V, V, TALL, V, V, HIGHV, V];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fP", "fB", "fA"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
