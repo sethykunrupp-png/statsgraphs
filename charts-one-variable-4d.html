@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Charts for One Variable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    @media (min-width: 761px) { #tbl { width: min(380px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Box plot, cumulative distribution, Q-Q plot, bar and pie">
+            <span class="p" id="fQ" style="font-size:.75em;font-style:normal">Q1 · median · Q3</span><span class="sym" style="margin:0 8px">·</span><span class="p" id="fI" style="font-size:.75em;font-style:normal">IQR = Q3 − Q1</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- charts for one variable: box plot, outliers, cumulative distribution, Q-Q plot, bar and pie ----------
+    var STEPS = [
+        {
+                "t": "Forty raw values",
+                "n": "The monthly income of 40 households. As a cloud of numbers they say nothing. Drop each one onto a number line, stacked in bins: this is a dot plot.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Sort them",
+                "n": "Line the values up from smallest to largest. Sorting is the first step for every chart on this page: quartiles, box plots, cumulative curves and Q-Q plots all use the order.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "The five-number summary",
+                "n": "Minimum, Q1, median, Q3 and maximum split the sorted data into four parts with the same number of values in each.",
+                "s": "",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "Build the box plot",
+                "n": "The box runs from Q1 to Q3 and holds the middle half of the data. The line inside is the median. The whiskers reach out to the last values that are not outliers.",
+                "s": "",
+                "on": [
+                        "fQ",
+                        "fI"
+                ]
+        },
+        {
+                "t": "Outliers: the 1.5 × IQR rule",
+                "n": "Fences sit 1.5 IQR below Q1 and above Q3. Values beyond the fences are drawn as separate points: possible errors or genuinely unusual cases to check.",
+                "s": "fence = Q3 + 1.5 × IQR",
+                "on": [
+                        "fI"
+                ]
+        },
+        {
+                "t": "Outliers: the z-score rule",
+                "n": "Another rule flags values more than 2.5 standard deviations from the mean. Outliers inflate the mean and SD themselves, so the IQR rule is often safer for skewed data.",
+                "s": "|z| = |x − mean| ÷ SD > 2.5",
+                "on": []
+        },
+        {
+                "t": "Reading the shape",
+                "n": "The median sits closer to Q1, the right whisker is long, and the mean is pulled above the median. All three signs say right skew: report the median.",
+                "s": "",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "Comparing groups",
+                "n": "Box plots shine side by side. Compare the medians for the centre, the box lengths for spread, and the dots for outliers.",
+                "s": "",
+                "on": [
+                        "fQ",
+                        "fI"
+                ]
+        },
+        {
+                "t": "The cumulative distribution",
+                "n": "Lift each sorted value to the share of data at or below it. The staircase rises from 0 to 1. It is the empirical cumulative distribution function (ECDF).",
+                "s": "height = rank ÷ n",
+                "on": []
+        },
+        {
+                "t": "Reading percentiles",
+                "n": "Go across at any share and down to the value. At 0.5 you land on the median; at 0.9 on the 90th percentile.",
+                "s": "",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "The normal Q-Q plot",
+                "n": "Plot each sorted value against the z it would have in a normal distribution. If the data were normal the points would follow the straight line. Here they bend upward at the right: a long right tail.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Q-Q plot of normal data",
+                "n": "Swap in 40 values drawn from a normal distribution. Now the points hug the line. A Q-Q plot is the standard check before using tests that assume normality.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Bar chart for categories",
+                "n": "Now a categorical variable: the business sector of 40 firms. Bars compare the count in each category. Sort the bars from largest to smallest so the order is easy to read.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Counts, percentages and a Pareto line",
+                "n": "Label each bar with its count and its percentage. The cumulative line shows how fast the categories add up to 100%.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Pie chart",
+                "n": "The same shares as slices of one whole: each angle is the share times 360°. Use a pie only for a few categories that add up to 100%.",
+                "s": "angle = share × 360°",
+                "on": []
+        },
+        {
+                "t": "Bar or pie?",
+                "n": "Eyes compare lengths far better than angles. Use bars to compare categories; use a pie only to show parts of one whole, with five slices or fewer.",
+                "s": "",
+                "on": []
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sdv(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / (a.length - 1)); }
+    function quant(s, p) { var h = (s.length - 1) * p, lo = Math.floor(h); return s[lo] + (h - lo) * ((s[lo + 1] === undefined ? s[lo] : s[lo + 1]) - s[lo]); }
+    function Phi(z) { var t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), x = Math.abs(z) / Math.SQRT2; var e = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return z >= 0 ? 0.5 + e / 2 : 0.5 - e / 2; }
+    function invPhi(p) { var lo = -6, hi = 6; for (var k = 0; k < 60; k++) { var m = (lo + hi) / 2; if (Phi(m) < p) lo = m; else hi = m; } return (lo + hi) / 2; }
+    var r0 = rng(11), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    function lognorm(n, mu, s) { var a = []; for (var i = 0; i < n; i++) a.push(Math.max(8, Math.round(Math.exp(mu + s * gauss())))); return a; }
+    var V = lognorm(38, 3.3, 0.42).concat([118, 141]), N = V.length;
+    var GB = lognorm(40, 3.65, 0.3), GC = lognorm(40, 3.0, 0.28), NV = []; for (var i0 = 0; i0 < N; i0++) NV.push(Math.round(35 + 10 * gauss()));
+    function five(a) { var s = a.slice().sort(function (x, y) { return x - y; }), q1 = quant(s, 0.25), q3 = quant(s, 0.75), iqr = q3 - q1, lf = q1 - 1.5 * iqr, uf = q3 + 1.5 * iqr;
+        var inside = s.filter(function (v) { return v >= lf && v <= uf; });
+        return { s: s, min: s[0], q1: q1, med: quant(s, 0.5), q3: q3, max: s[s.length - 1], iqr: iqr, lf: lf, uf: uf, lw: inside[0], uw: inside[inside.length - 1], out: s.filter(function (v) { return v < lf || v > uf; }), mean: mean(a), sd: sdv(a) }; }
+    var F = five(V), FB = five(GB), FC = five(GC), S = F.s, NS_ = NV.slice().sort(function (x, y) { return x - y; });
+    var ORD = V.map(function (v, i) { return i; }).sort(function (a, b) { return V[a] - V[b] || a - b; }), RANK = []; ORD.forEach(function (k, r) { RANK[k] = r; });
+    var ZOUT = S.filter(function (v) { return Math.abs((v - F.mean) / F.sd) > 2.5; });
+    var CAT = [['retail', 14], ['services', 10], ['manufacturing', 7], ['agriculture', 5], ['construction', 4]], CCOL = ['#4dd2ff', '#ffb454', '#5cff9d', '#b388ff', '#ff5c8a'];
+    var XV = function (v) { return v * 0.075; }, QX = function (z) { return 5.5 + z * 1.7; }, YV = function (v) { return 0.3 + v * 0.034; }, EZ = -0.5, EH = 4.5;
+    grid.position.set(5.5, -0.03, -1);
+
+    // ---------- number line ----------
+    var tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), axis = bar('#3c6d80', 0.5), ticks = [], tlb = [];
+    setBar(axis, 0, 0, 0, XV(152));
+    for (var v = 0; v <= 140; v += 20) { var tk = new THREE.Mesh(tickGeo, mat('#5d9ab3')); tk.position.set(XV(v), 0, 0); scene.add(tk); ticks.push(tk); tlb.push(label(String(v), XV(v), -0.38, 0.3, 'tick')); }
+    var lbUnit = label('monthly income ($100s)', XV(152) + 0.3, 0, 0, 'key', true);
+    // ---------- the dots ----------
+    var sph = new THREE.SphereGeometry(0.13, 14, 10), D = [], bins = {};
+    var rs = rng(5);
+    V.forEach(function (v, i) { var b = Math.floor(v / 5) * 5 + 2.5, k = bins[b] || 0; bins[b] = k + 1;
+        var m = new THREE.Mesh(sph, mat('#00ffff')); scene.add(m);
+        D.push({ m: m, v: v, dot: [XV(b), 0.2 + 0.3 * k, 0], raw: [rs() * 11, 0.5 + rs() * 4, -3 + rs() * 6] }); });
+    // ---------- five-number summary and box plot ----------
+    var FN = ['min', 'Q1', 'median', 'Q3', 'max'], FV = [F.min, F.q1, F.med, F.q3, F.max], fiveP = [], fiveL = [];
+    FN.forEach(function (n, k) { fiveP.push(post(k === 2 ? '#ffffff' : '#ffb454', 1.4)); fiveL.push(label('', 0, 0, 0, k === 2 ? 'eq' : '')); });
+    function boxPlot(col) { return { b: box(col, 0.35, true), med: post('#ffffff', 2.2), wl: bar(col, 1.2), wr: bar(col, 1.2), cl: post(col, 1.2), cr: post(col, 1.2), o: [] }; }
+    function setBox(bp, f, z, a, h) { h = h || 0.8; var y0 = 0.25;
+        bp.b.visible = a > 0.01; bp.b.material.opacity = 0.35 * a; bp.b.children[0].material.opacity = 0.6 * a; bp.b.scale.set(Math.max(XV(f.q3) - XV(f.q1), 0.01) * Math.min(1, a * 1.5), h, 0.8); bp.b.position.set(XV(f.q1), y0, z - 0.4);
+        setPost(bp.med, XV(f.med), z, h * a, y0); var wa = cl(a * 2 - 1);
+        setBar(bp.wl, XV(f.q1) - (XV(f.q1) - XV(f.lw)) * wa, y0 + h / 2, z, (XV(f.q1) - XV(f.lw)) * wa); setBar(bp.wr, XV(f.q3), y0 + h / 2, z, (XV(f.uw) - XV(f.q3)) * wa);
+        setPost(bp.cl, XV(f.lw), z, 0.5 * wa, y0 + h / 2 - 0.25); setPost(bp.cr, XV(f.uw), z, 0.5 * wa, y0 + h / 2 - 0.25); }
+    var BP = boxPlot('#00ffff'), BPB = boxPlot('#ffb454'), BPC = boxPlot('#b388ff');
+    var outS = F.out.map(function () { var m = new THREE.Mesh(sph, mat('#ff5c8a')); m.visible = false; scene.add(m); return m; });
+    var fenceL = post('#ff5c8a', 1.1), fenceR = post('#ff5c8a', 1.1), zL = post('#ffb454', 1.1), zR = post('#ffb454', 1.1), meanP = post('#ffb454', 1.6);
+    var skewA = bar('#5cff9d', 2.2), skewB = bar('#ff8fd0', 2.2);
+    // ---------- ECDF and Q-Q ----------
+    var ecdf = polyline(2 * N + 2, '#00ffff'), yAx = post('#3c6d80'), yT = [];
+    for (var q = 0; q <= 4; q++) yT.push(label((q / 4).toFixed(2), -0.5, EH * q / 4, EZ, 'tick'));
+    var pH = bar('#ffb454', 0.9), pV = post('#ffb454', 1.2), pH2 = bar('#ff8fd0', 0.9), pV2 = post('#ff8fd0', 1.2);
+    var qqAx = bar('#3c6d80', 0.5), qqAy = post('#3c6d80'), qqT = [], qqL = bar('#ff5c8a', 1.3);
+    for (var zt = -2; zt <= 2; zt++) qqT.push(label(String(zt), QX(zt), -0.35, EZ, 'tick'));
+    var qqY = []; for (v = 20; v <= 140; v += 40) qqY.push(label(String(v), QX(-2.55) - 0.4, YV(v), EZ, 'tick'));
+    // ---------- categories ----------
+    var BX = function (k) { return 0.9 + k * 1.35; }, CB = CAT.map(function (c, k) { return box(CCOL[k], 0.85, true); }), CL = CAT.map(function (c, k) { var l = label('', 0, 0, 0, 'tick'); l.el.style.color = CCOL[k]; return l; }), CN = CAT.map(function () { return label('', 0, 0, 0, 'eq'); });
+    var pareto = polyline(5, '#ffffff'), PC = [10.2, 2.3, EZ], PR = 2.4, slices = CAT.map(function (c, k) { var m = new THREE.Mesh(new THREE.BufferGeometry(), mat(CCOL[k], 0.85)); scene.add(m); return m; }), PL = CAT.map(function () { return label('', 0, 0, 0, 'eq'); });
+    var lastPie = -1;
+    function pie(g) { if (Math.abs(g - lastPie) < 0.002) return; lastPie = g; var tot = 40, a0 = Math.PI / 2;
+        CAT.forEach(function (c, k) { var th = 2 * Math.PI * c[1] / tot; var geo = new THREE.CylinderGeometry(PR, PR, 0.6, 40, 1, false, a0 - th * g, th * g); geo.rotateX(Math.PI / 2); slices[k].geometry.dispose(); slices[k].geometry = geo;
+            var mid = a0 - th / 2; slices[k].position.set(PC[0] + 0.12 * Math.sin(mid), PC[1] + 0.12 * Math.cos(mid), PC[2]); PL[k].p.set(PC[0] + 1.55 * Math.sin(mid), PC[1] + 1.55 * Math.cos(mid), PC[2] + 0.4); a0 -= th; }); }
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, ''), lbG = [label('main sample', 0, 0, 0, 'key'), label('group B', 0, 0, 0, 'key'), label('group C', 0, 0, 0, 'key')];
+    lbG[1].el.style.color = '#ffb454'; lbG[2].el.style.color = '#c9aaff'; lbA.el.style.fontSize = '16px';
+
+    // ---------- table ----------
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table>' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 1 ? 10 + step : step <= 6 ? 1 : step === 7 ? 2 : step <= 9 ? 3 : step <= 11 ? 4 : 5; if (k === tKey) return; tKey = k;
+        if (k >= 10) { var rows = []; for (var r = 0; r < 8; r++) { var row = []; for (var c = 0; c < 5; c++) row.push(String((step === 1 ? S : V)[r * 5 + c])); rows.push(row); } card('40 values' + (step === 1 ? ', sorted' : ''), null, rows); }
+        else if (k === 1) card('Five-number summary and fences', ['measure', 'value'], [['minimum', f1(F.min)], ['Q1 (25%)', f1(F.q1)], ['median (50%)', f1(F.med)], ['Q3 (75%)', f1(F.q3)], ['maximum', f1(F.max)], ['IQR = Q3 − Q1', f1(F.iqr)], ['lower fence Q1 − 1.5 IQR', f1(F.lf)], ['upper fence Q3 + 1.5 IQR', f1(F.uf)], ['outliers by the box rule', F.out.join(', ') || 'none'], ['mean · SD', f1(F.mean) + ' · ' + f1(F.sd)], ['outliers with |z| > 2.5', ZOUT.map(function (v) { return v + ' (z = ' + f2((v - F.mean) / F.sd) + ')'; }).join(', ') || 'none']]);
+        else if (k === 2) card('Three groups side by side', ['', 'main', 'group B', 'group C'], [['Q1', f1(F.q1), f1(FB.q1), f1(FC.q1)], ['median', f1(F.med), f1(FB.med), f1(FC.med)], ['Q3', f1(F.q3), f1(FB.q3), f1(FC.q3)], ['IQR', f1(F.iqr), f1(FB.iqr), f1(FC.iqr)], ['outliers', String(F.out.length), String(FB.out.length), String(FC.out.length)]]);
+        else if (k === 3) card('Reading the cumulative distribution', ['share at or below', 'value'], [['10%', f1(quant(S, 0.1))], ['25% (Q1)', f1(F.q1)], ['50% (median)', f1(F.med)], ['75% (Q3)', f1(F.q3)], ['90%', f1(quant(S, 0.9))]]);
+        else if (k === 4) { var rr = [0, 1, 19, 20, 38, 39].map(function (i) { var p = (i + 0.5) / N; return [String(i + 1), f2(p), f2(invPhi(p)), String(S[i]), String(NS_[i])]; }); card('Q-Q plot: each sorted value against its normal z', ['rank', 'p = (i − 0.5) ÷ n', 'normal z', 'income', 'normal data'], rr); }
+        else card('Counts by business sector (n = 40)', ['sector', 'count', '%', 'pie angle'], CAT.map(function (c) { return [c[0], String(c[1]), f1(100 * c[1] / 40) + '%', Math.round(360 * c[1] / 40) + '°']; }));
+    }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        var settle = ph(0.2, 0.8), sortA = ph(1.1, 1.7) * (1 - ph(2.0, 2.4)), up = ph(8.1, 8.7) * (1 - ph(10.0, 10.1)), qq = ph(10.1, 10.7) * (1 - ph(12.0, 12.2)), nrm = ph(11.15, 11.7) * (1 - ph(12.0, 12.1));
+        var dotsA = 1 - ph(12.0, 12.3), dim = step === 7 ? 0.25 : 1;
+        D.forEach(function (d, i) {
+            var r = RANK[i], p = [lerp(d.raw[0], d.dot[0], settle), lerp(d.raw[1], d.dot[1], settle), lerp(d.raw[2], d.dot[2], settle)];
+            var st = [0.25 + r * 0.27, 2.6, 0.6]; p = [lerp(p[0], st[0], sortA), lerp(p[1], st[1], sortA), lerp(p[2], st[2], sortA)];
+            if (T >= 8) { var ec = [XV(d.v), EH * (r + 1) / N, EZ]; p = [lerp(d.dot[0], ec[0], up), lerp(d.dot[1], ec[1], up), lerp(0, EZ, up)]; }
+            if (qq > 0) { var zq = invPhi((r + 0.5) / N), qv = lerp(S[r], NS_[r], nrm), qp = [QX(zq), YV(qv), EZ]; p = [lerp(p[0], qp[0], qq), lerp(p[1], qp[1], qq), lerp(p[2], qp[2], qq)]; }
+            d.m.position.set(p[0], p[1], p[2]); d.m.visible = dotsA > 0.01; d.m.material.opacity = dotsA * dim;
+            var isOut = F.out.indexOf(d.v) >= 0 && T >= 4.3 && T < 8; d.m.material.color.set(isOut ? '#ff5c8a' : (qq > 0.5 && nrm > 0.5 ? '#5cff9d' : '#00ffff'));
+        });
+        // number line
+        var nl = 1 - Math.max(up, qq, ph(12.0, 12.3)); axis.visible = nl > 0.01; ticks.forEach(function (t) { t.visible = nl > 0.01; }); tlb.forEach(function (l) { l.a = 0.8 * nl; }); lbUnit.a = nl;
+        // five-number summary
+        var fa = vis(2, 3) * ph(2.1, 2.3);
+        FV.forEach(function (fv, k) { var a = fa * ph(2.15 + k * 0.08, 2.25 + k * 0.08); setPost(fiveP[k], XV(fv), 0.8, 1.6 * a); fiveL[k].p.set(XV(fv), 1.9 + (k % 2) * 0.45, 0.8); fiveL[k].a = a; setText(fiveL[k], FN[k] + ' ' + f1(fv)); });
+        // box plots
+        var ba = ph(3.1, 3.6) * (1 - ph(8.0, 8.2));
+        setBox(BP, F, 1.0, ba); setBox(BPB, FB, 2.5, vis(7, 8) * ph(7.2, 7.5)); setBox(BPC, FC, 4.0, vis(7, 8) * ph(7.35, 7.65));
+        lbG[0].p.set(XV(F.uw) + 0.8, 0.65, 1.0); lbG[1].p.set(XV(FB.uw) + 0.8, 0.65, 2.5); lbG[2].p.set(XV(FC.uw) + 0.8, 0.65, 4.0); lbG.forEach(function (l, k) { l.a = vis(7, 8) * ph(7.3 + k * 0.1, 7.45 + k * 0.1); });
+        var oa = ph(4.3, 4.5) * (1 - ph(8.0, 8.2)); F.out.forEach(function (v, k) { outS[k].visible = oa > 0.01; outS[k].position.set(XV(v), 0.65, 1.0); outS[k].scale.setScalar(Math.max(oa, 0.01)); });
+        var fe = vis(4, 5) * ph(4.15, 4.35); setPost(fenceL, XV(Math.max(F.lf, 0)), 1.0, 1.8 * fe); setPost(fenceR, XV(F.uf), 1.0, 1.8 * fe);
+        var za = vis(5, 6) * ph(5.15, 5.35); setPost(zL, XV(Math.max(F.mean - 2.5 * F.sd, 0)), 1.0, 1.8 * za); setPost(zR, XV(F.mean + 2.5 * F.sd), 1.0, 1.8 * za); setPost(meanP, XV(F.mean), 1.0, 1.4 * (za + vis(6, 7)));
+        var sk = vis(6, 7) * ph(6.2, 6.4); setBar(skewA, XV(F.q1), 1.25, 1.0, (XV(F.med) - XV(F.q1)) * sk); setBar(skewB, XV(F.med), 1.25, 1.0, (XV(F.q3) - XV(F.med)) * sk);
+        // ECDF
+        var ea = vis(8, 10) * ph(8.6, 8.9);
+        for (i = 0; i < N; i++) { var x0 = XV(S[i]), y0 = EH * i / N, y1 = EH * (i + 1) / N; ecdf.set(2 * i, x0, y0, EZ); ecdf.set(2 * i + 1, x0, y1, EZ); }
+        ecdf.set(2 * N, XV(S[N - 1]) + 0.6, EH, EZ); ecdf.set(2 * N + 1, XV(S[N - 1]) + 0.6, EH, EZ); ecdf.set(0, XV(S[0]) - 0.6, 0, EZ);
+        ecdf.done(); ecdf.m.visible = ea > 0.01; ecdf.m.material.opacity = ea;
+        setPost(yAx, 0, EZ, EH * Math.max(ea, 0) + 0.2); yAx.visible = ea > 0.01; yT.forEach(function (l) { l.a = 0.8 * ea; });
+        var p9 = vis(9, 10) * ph(9.15, 9.4), p9b = vis(9, 10) * ph(9.5, 9.75);
+        setBar(pH, 0, EH * 0.5, EZ + 0.02, XV(F.med) * p9); setPost(pV, XV(F.med), EZ + 0.02, EH * 0.5 * p9); setBar(pH2, 0, EH * 0.9, EZ + 0.02, XV(quant(S, 0.9)) * p9b); setPost(pV2, XV(quant(S, 0.9)), EZ + 0.02, EH * 0.9 * p9b);
+        // Q-Q frame
+        var qa = qq * ph(10.5, 10.8); setBar(qqAx, QX(-2.6), 0, EZ, QX(2.6) - QX(-2.6)); qqAx.visible = qa > 0.01; setPost(qqAy, QX(-2.6), EZ, YV(150)); qqAy.visible = qa > 0.01; qqT.forEach(function (l) { l.a = 0.8 * qa; }); qqY.forEach(function (l) { l.a = 0.8 * qa; });
+        var src = nrm > 0.5 ? NS_ : S, z1 = invPhi(0.25), z3 = invPhi(0.75), q1v = quant(src, 0.25), q3v = quant(src, 0.75), sl = (q3v - q1v) / (z3 - z1), ic = q1v - sl * z1;
+        setSeg(qqL, QX(-2.4), YV(ic + sl * -2.4), QX(2.4), YV(ic + sl * 2.4), EZ - 0.02); qqL.visible = qa > 0.01; qqL.material.opacity = qa;
+        // categories
+        var ca = ph(12.1, 12.6), cbf = 1 - 0.7 * ph(14.0, 14.4);
+        CAT.forEach(function (c, k) { var a = ca * ph(12.15 + k * 0.08, 12.4 + k * 0.08); CB[k].visible = a > 0.01; CB[k].material.opacity = 0.85 * a * cbf + (step >= 15 ? 0.6 * ph(15.1, 15.4) : 0); CB[k].scale.set(0.9, Math.max(c[1] * 0.28 * a, 0.01), 0.9); CB[k].position.set(BX(k) - 0.45, 0, EZ - 0.45);
+            CL[k].p.set(BX(k), -0.35, EZ + 0.5); CL[k].a = a; setText(CL[k], c[0]); CN[k].p.set(BX(k), c[1] * 0.28 + 0.35, EZ); CN[k].a = a; setText(CN[k], step >= 13 ? c[1] + ' · ' + Math.round(100 * c[1] / 40) + '%' : String(c[1])); });
+        var pa = vis(13, 14) * ph(13.3, 13.6), cum = 0; for (k = 0; k < 5; k++) { cum += CAT[k][1]; pareto.set(k, BX(k), cum / 40 * 5.2, EZ + 0.5); } pareto.done(Math.max(2, Math.round(5 * pa))); pareto.m.visible = pa > 0.01; pareto.m.material.opacity = pa;
+        var pg = ph(14.15, 14.8); pie(pg); slices.forEach(function (m, k) { m.visible = pg > 0.01; PL[k].a = pg > 0.95 ? 1 : 0; setText(PL[k], Math.round(100 * CAT[k][1] / 40) + '%'); });
+        // labels
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, z, t, a, c) { lb.p.set(x, y, z); lb.a = a; setText(lb, t); lb.el.style.color = c || ''; };
+        if (step === 1) L(lbA, 5.5, 3.2, 0.6, 'sorted: rank 1 (smallest) to rank 40 (largest)', ph(1.7, 1.85));
+        if (step === 3) L(lbA, XV(F.med), 1.55, 1.0, 'box = middle 50% · line = median · whiskers', ph(3.6, 3.75));
+        if (step === 4) { L(lbA, XV(F.uf), 2.1, 1.0, 'upper fence ' + f1(F.uf), ph(4.35, 4.5), '#ff8fae'); L(lbB, XV(132), 1.1, 1.0, 'outliers', ph(4.5, 4.65), '#ff8fae'); }
+        if (step === 5) { L(lbA, XV(F.mean + 2.5 * F.sd), 2.1, 1.0, 'mean + 2.5 SD = ' + f1(F.mean + 2.5 * F.sd), ph(5.35, 5.5), '#ffb454'); }
+        if (step === 6) { L(lbA, XV((F.q1 + F.med) / 2), 1.6, 1.0, f1(F.med - F.q1), ph(6.4, 6.5), '#5cff9d'); L(lbB, XV((F.med + F.q3) / 2), 1.6, 1.0, f1(F.q3 - F.med), ph(6.4, 6.5), '#ff8fd0'); L(lbC, XV(F.mean), 2.6, 1.0, 'mean ' + f1(F.mean) + ' > median ' + f1(F.med), ph(6.5, 6.65), '#ffb454'); }
+        if (step === 9) { L(lbA, XV(F.med) + 0.2, EH * 0.5 + 0.35, EZ, '50% → median ' + f1(F.med), ph(9.4, 9.5), '#ffb454'); L(lbB, XV(quant(S, 0.9)) + 0.2, EH * 0.9 + 0.35, EZ, '90% → ' + f1(quant(S, 0.9)), ph(9.75, 9.85), '#ff8fd0'); }
+        if (step === 10) L(lbA, QX(1.2), YV(150), EZ, 'points bend upward: right skew', ph(10.8, 10.95), '#ff8fae');
+        if (step === 11) L(lbA, QX(1.2), YV(150), EZ, 'normal data: points follow the line', ph(11.7, 11.85), '#5cff9d');
+        if (step === 13) L(lbA, BX(4) + 1.6, 4.8, EZ + 0.5, 'cumulative % (Pareto line)', ph(13.6, 13.75));
+        if (step === 15) L(lbA, 8.6, 5.6, EZ, 'bars: compare sizes · pie: shares of one whole', ph(15.3, 15.45));
+        buildTable();
+        var hl = [];
+        if (step === 2) hl = [Math.min(4, Math.floor((w - 0.1) / 0.08))]; if (step === 3) hl = [1, 2, 3]; if (step === 4) hl = [5, 6, 7, 8]; if (step === 5) hl = [9, 10]; if (step === 9) hl = [2, 4];
+        trs.forEach(function (tr, k) { var c = (step === 0 ? (k >= Math.floor((w - 0.1) / 0.06) + 1 ? 'hid' : '') : '') + (hl.indexOf(k) >= 0 ? ' hl' : ''); if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step === 0) st = 'n = 40 · each dot is one household';
+        else if (step === 2) st = 'min ' + F.min + ' · Q1 ' + f1(F.q1) + ' · median ' + f1(F.med) + ' · Q3 ' + f1(F.q3) + ' · max ' + F.max;
+        else if (step === 4) st = 'IQR = ' + f1(F.iqr) + ' · fences ' + f1(F.lf) + ' and <b>' + f1(F.uf) + '</b> · outliers: <b>' + F.out.join(', ') + '</b>';
+        else if (step === 5) st = 'mean ' + f1(F.mean) + ' · SD ' + f1(F.sd) + ' · |z| > 2.5: <b>' + (ZOUT.join(', ') || 'none') + '</b>';
+        else if (step === 6) st = 'median − Q1 = ' + f1(F.med - F.q1) + ' · Q3 − median = ' + f1(F.q3 - F.med) + ' → <b>right skew</b>';
+        else if (step === 9) st = 'median <b>' + f1(F.med) + '</b> · 90th percentile <b>' + f1(quant(S, 0.9)) + '</b>';
+        else if (step >= 12) st = 'retail is ' + Math.round(100 * 14 / 40) + '% of 40 firms';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var FR = [[5.6, 4.6, 13.5], [5.6, 1.4, 0.2], -1.4], ISO = [[15, 8, 7], [5.5, 0.4, -2.8], -1.2], GR = [[6, 7.5, 13], [5.8, 0.8, 1.8], -1.4];
+    var EC = [[5.6, 3.4, 14], [5.6, 2.4, -0.5], -1.4], QQ = [[5.6, 3.3, 13.5], [5.6, 2.6, -0.5], -1.4], CT = [[6.2, 4.0, 14], [6.2, 2.4, -0.5], -1.4];
+    var CAM = [FR, FR, FR, FR, FR, FR, FR, GR, EC, EC, QQ, QQ, CT, CT, CT, CT];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fQ", "fI"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

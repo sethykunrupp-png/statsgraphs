@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Non-Linear Relationships</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.pt td, #tbl table.pt th { text-align: left; white-space: normal; }
+    @media (min-width: 761px) { #tbl { width: min(400px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Quadratic, polynomial, exponential and sinusoidal models">
+            <span class="p" id="fQ" style="font-size:.7em;font-style:normal">b₀ + b₁x + b₂x²</span><span class="sym" style="margin:0 6px">·</span><span class="p" id="fE" style="font-size:.7em;font-style:normal">a·e<sup>bx</sup></span><span class="sym" style="margin:0 6px">·</span><span class="p" id="fS" style="font-size:.7em;font-style:normal">m + A sin + B cos</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- non-linear relationships: quadratic, polynomial, exponential, sinusoidal ----------
+    var STEPS = [
+        {
+                "t": "A strong link with r near zero",
+                "n": "Crop yield rises with fertiliser, then falls when there is too much. The pattern is obvious, yet the correlation is close to zero: r only measures straight-line links.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "A straight line on curved data",
+                "n": "Force a straight line through the points. It is almost flat and explains very little.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Residuals reveal the shape",
+                "n": "Untilt the picture so the line lies flat. The residuals are negative at both ends and positive in the middle: a clear pattern. A pattern in the residuals means the model has the wrong shape.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Polynomial regression: add x²",
+                "n": "Add x² as a second variable. The fitted curve follows the rise and the fall, and R² jumps.",
+                "s": "ŷ = b₀ + b₁x + b₂x²",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "Reading the quadratic",
+                "n": "A negative b₂ means the curve bends down. The top of the curve is at x* = −b₁ ÷ (2b₂): the fertiliser level with the highest expected yield.",
+                "s": "x* = −b₁ ÷ (2b₂)",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "Too many bends: over-fitting",
+                "n": "A degree-20 polynomial passes through every point, so R² = 1. But it swings wildly between and beyond the points: it has memorised the noise and would predict badly. Use the lowest degree that removes the pattern in the residuals.",
+                "s": "",
+                "on": [
+                        "fQ"
+                ]
+        },
+        {
+                "t": "Growth by a constant percentage",
+                "n": "Savings that earn interest grow by the same percentage each year, so each year adds more than the last. The points curve upward.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "A straight line misses",
+                "n": "A straight line under-predicts at both ends and over-predicts in the middle. Again the residuals show a pattern.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Take logs: the curve straightens",
+                "n": "Plot ln(y) instead of y. Constant percentage growth becomes a straight line, which ordinary regression can fit.",
+                "s": "ln y = ln a + bx",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Back to the original scale",
+                "n": "Undo the log: ŷ = a·e^(bx). The growth rate per period is e^b − 1, and the doubling time is ln 2 ÷ b.",
+                "s": "growth = e^b − 1",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Projecting forward",
+                "n": "The fitted curve can be extended to project growth, but small errors in b compound fast. Beyond the data, treat the curve as a scenario, not a fact.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Patterns that repeat",
+                "n": "Monthly sales over two years rise and fall with the seasons. The pattern repeats every 12 months.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "A straight line sees nothing",
+                "n": "A straight line through a cycle is almost flat: R² near zero, even though the pattern is strong.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Fit a sine and a cosine",
+                "n": "Add sin(2πx/12) and cos(2πx/12) as two x variables. Ordinary regression then fits a smooth wave with the right timing.",
+                "s": "ŷ = m + A sin(2πx/12) + B cos(2πx/12)",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Reading the cycle",
+                "n": "The level m is the average. The amplitude √(A² + B²) is how far sales swing above and below it. The period is 12 months, and the phase tells which month peaks.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Choosing the shape",
+                "n": "Plot the data and the residuals first. Rise and fall: quadratic. Constant % growth: logs. Repeating cycle: sine and cosine. Then check that the residuals show no pattern.",
+                "s": "",
+                "on": [
+                        "fQ",
+                        "fE",
+                        "fS"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); }, f3 = function (v) { return v.toFixed(3); };
+    var sg = function (v, d) { return (v < 0 ? ' − ' : ' + ') + Math.abs(v).toFixed(d === undefined ? 2 : d); };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function solve(A, v) { var n = v.length, M = A.map(function (r, i) { return r.concat([v[i]]); });
+        for (var c = 0; c < n; c++) { var p = c; for (var r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; var tm = M[c]; M[c] = M[p]; M[p] = tm;
+            for (r = 0; r < n; r++) if (r !== c) { var f = M[r][c] / M[c][c]; for (var k = c; k <= n; k++) M[r][k] -= f * M[c][k]; } }
+        return M.map(function (r, i) { return r[n] / r[i]; }); }
+    function ols(rows, y) { var k = rows[0].length, A = [], v = [], a, b; for (a = 0; a < k; a++) { A.push([]); v.push(0); for (b = 0; b < k; b++) A[a].push(0); }
+        rows.forEach(function (r, i) { for (a = 0; a < k; a++) { v[a] += r[a] * y[i]; for (b = 0; b < k; b++) A[a][b] += r[a] * r[b]; } }); return solve(A, v); }
+    function r2(y, yh) { var m = mean(y), ss = 0, se = 0; y.forEach(function (v, i) { ss += (v - m) * (v - m); se += (v - yh[i]) * (v - yh[i]); }); return 1 - se / ss; }
+    function corr(a, b) { var ma = mean(a), mb = mean(b), s = 0, sa = 0, sb = 0; for (var i = 0; i < a.length; i++) { s += (a[i] - ma) * (b[i] - mb); sa += (a[i] - ma) * (a[i] - ma); sb += (b[i] - mb) * (b[i] - mb); } return s / Math.sqrt(sa * sb); }
+    var r0 = rng(31), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    var N = 21, XA = [], YA = [], YB = [], XC = [], YC = [];
+    for (var i0 = 0; i0 < N; i0++) { var x = i0 * 0.5; XA.push(x); YA.push(15 - 0.5 * (x - 5) * (x - 5) + 0.9 * gauss()); YB.push(2 * Math.pow(1.25, x) * Math.exp(0.08 * gauss())); var xc = i0 * 1.2; XC.push(xc); YC.push(10 + 3.5 * Math.sin(2 * Math.PI * (xc - 2) / 12) + 0.6 * gauss()); }
+    // fits
+    var LA = ols(XA.map(function (x) { return [1, x]; }), YA), QA = ols(XA.map(function (x) { return [1, x, x * x]; }), YA);
+    var uu = function (x) { return (x - 5) / 5; }, P8 = ols(XA.map(function (x) { var r = []; for (var k = 0; k <= 8; k++) r.push(Math.pow(uu(x), k)); return r; }), YA);
+    var fL = function (c) { return function (x) { return c[0] + c[1] * x; }; }, fQ = function (x) { return QA[0] + QA[1] * x + QA[2] * x * x; }, f8 = function (x) { var s = 0; for (var i = 0; i < N; i++) { var t = YA[i]; for (var j = 0; j < N; j++) if (j !== i) t *= (x - XA[j]) / (XA[i] - XA[j]); s += t; } return s; };
+    var R2LA = r2(YA, XA.map(fL(LA))), R2QA = r2(YA, XA.map(fQ)), R28 = r2(YA, XA.map(f8)), RA = corr(XA, YA), XSTAR = -QA[1] / (2 * QA[2]), YSTAR = fQ(XSTAR);
+    var LB = ols(XA.map(function (x) { return [1, x]; }), YB), R2LB = r2(YB, XA.map(fL(LB))), LOGB = YB.map(Math.log), EB = ols(XA.map(function (x) { return [1, x]; }), LOGB);
+    var fE = function (x) { return Math.exp(EB[0] + EB[1] * x); }, R2LOG = r2(LOGB, XA.map(function (x) { return EB[0] + EB[1] * x; })), R2EB = r2(YB, XA.map(fE)), GR = Math.exp(EB[1]) - 1, DBL = Math.log(2) / EB[1];
+    var LC = ols(XC.map(function (x) { return [1, x]; }), YC), R2LC = r2(YC, XC.map(fL(LC))), W = 2 * Math.PI / 12;
+    var SC = ols(XC.map(function (x) { return [1, Math.sin(W * x), Math.cos(W * x)]; }), YC), fS = function (x) { return SC[0] + SC[1] * Math.sin(W * x) + SC[2] * Math.cos(W * x); };
+    var R2SC = r2(YC, XC.map(fS)), AMP = Math.sqrt(SC[1] * SC[1] + SC[2] * SC[2]), PEAK = ((Math.atan2(SC[1], SC[2]) / W) % 12 + 12) % 12;
+    // world
+    var WX = function (x, ds) { return ds === 2 ? x * 0.375 : x * 0.9; }, WY = function (y) { return y * 0.28; }, WYL = function (l) { return l * 1.9; };
+    grid.position.set(4.5, -0.03, -2);
+    var axX = bar('#3c6d80', 0.5), axY = post('#3c6d80'); setBar(axX, 0, 0, 0, 10.4); setPost(axY, 0, 0, 6.2);
+    var xt = [], yt = []; for (var k1 = 0; k1 <= 6; k1++) xt.push(label('', 0, -0.35, 0.2, 'tick')); for (k1 = 0; k1 <= 4; k1++) yt.push(label('', -0.45, 0, 0, 'tick'));
+    var lbXn = label('', 10.6, 0, 0, 'key', true), lbYn = label('', 0, 6.6, 0, 'key');
+    var sph = new THREE.SphereGeometry(0.15, 14, 10), PTS = [], RES = [];
+    for (i0 = 0; i0 < N; i0++) { var m = new THREE.Mesh(sph, mat('#00ffff')); scene.add(m); PTS.push(m); RES.push(post('#ffb454', 1.4)); }
+    var cLine = polyline(2, '#ffffff'), cFit = polyline(161, '#5cff9d'), c8 = polyline(161, '#ff5c8a'), cProj = polyline(60, '#5cff9d');
+    var top = post('#ffb454', 1.4), topD = new THREE.Mesh(sph, mat('#ffb454')); scene.add(topD);
+    var ampP = post('#b388ff', 1.6), perB = bar('#b388ff', 1.4), meanB = bar('#ffffff', 0.7);
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, ''); lbA.el.style.fontSize = '16px';
+
+    // ----- table -----
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table class="pt">' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 5 ? 0 : step <= 10 ? 1 : step <= 14 ? 2 : 3; if (k === tKey) return; tKey = k;
+        if (k === 0) card('Curved data: three models', ['model', 'equation', 'R²'], [['straight line', 'ŷ = ' + f2(LA[0]) + sg(LA[1]) + 'x', f2(R2LA)], ['quadratic', 'ŷ = ' + f2(QA[0]) + sg(QA[1]) + 'x' + sg(QA[2], 3) + 'x²', f2(R2QA)], ['degree-20 polynomial', 'passes through all 21 points', f2(R28)], ['correlation r', 'straight-line link only', f2(RA)], ['turning point', 'x* = −b₁ ÷ (2b₂) = ' + f2(XSTAR), 'ŷ* = ' + f1(YSTAR)]]);
+        else if (k === 1) card('Growth by a constant percentage', ['model', 'equation', 'R²'], [['straight line', 'ŷ = ' + f2(LB[0]) + sg(LB[1]) + 'x', f2(R2LB)], ['log scale', 'ln ŷ = ' + f3(EB[0]) + sg(EB[1], 3) + 'x', f2(R2LOG)], ['exponential', 'ŷ = ' + f2(Math.exp(EB[0])) + ' × e^(' + f3(EB[1]) + 'x)', f2(R2EB)], ['growth rate', 'e^b − 1', (100 * GR).toFixed(1) + '% per period'], ['doubling time', 'ln 2 ÷ b', f1(DBL) + ' periods']]);
+        else if (k === 2) card('A repeating cycle (period 12 months)', ['model', 'equation', 'R²'], [['straight line', 'ŷ = ' + f2(LC[0]) + sg(LC[1], 3) + 'x', f2(R2LC)], ['sine and cosine', 'ŷ = ' + f2(SC[0]) + sg(SC[1]) + ' sin(2πx/12)' + sg(SC[2]) + ' cos(2πx/12)', f2(R2SC)], ['level (mean)', 'b₀', f1(SC[0])], ['amplitude', '√(a² + b²)', f2(AMP)], ['peak month', 'from the phase', 'month ' + f1(PEAK)]]);
+        else card('Choosing the shape', ['pattern', 'model', 'how to fit · how to read'], [['rises then falls', 'quadratic', 'add x²; turning point −b₁ ÷ 2b₂'], ['several bends', 'polynomial', 'add x³…; keep the degree low'], ['grows by a % each period', 'exponential', 'regress ln y on x; growth = e^b − 1'], ['repeats in cycles', 'sinusoidal', 'add sin and cos of 2πx/period; amplitude, peak'], ['how to tell', 'residual plot', 'a pattern in residuals means the wrong shape']]);
+    }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        var mB = ph(6.05, 6.6), mC = ph(11.05, 11.6), lg = ph(8.1, 8.6) * (1 - ph(9.05, 9.5)), flat = ph(2.3, 2.7) * (1 - ph(3.0, 3.2));
+        var ds = mC > 0.5 ? 2 : mB > 0.5 ? 1 : 0;
+        // axis labels
+        var xs = ds === 2 ? [0, 4, 8, 12, 16, 20, 24] : [0, 2, 4, 6, 8, 10, 12]; xt.forEach(function (l, k) { l.p.x = WX(xs[k], ds); l.a = xs[k] <= (ds === 2 ? 24 : 11) ? 0.8 : 0; setText(l, String(xs[k])); });
+        var ys = lg > 0.5 ? [0, 1, 2, 3, null] : [0, 5, 10, 15, 20]; yt.forEach(function (l, k) { var v = ys[k]; l.a = v === null ? 0 : 0.8; if (v !== null) { l.p.y = lg > 0.5 ? WYL(v) : WY(v); setText(l, lg > 0.5 ? 'ln ' + v : String(v)); } });
+        setText(lbXn, ds === 0 ? 'fertiliser x' : ds === 1 ? 'years x' : 'month x'); setText(lbYn, ds === 0 ? 'crop yield y' : ds === 1 ? (lg > 0.5 ? 'ln(savings)' : 'savings y') : 'sales y'); lbXn.a = lbYn.a = 1;
+        // points
+        var fitNow = ds === 0 ? (T >= 3 ? fQ : fL(LA)) : ds === 1 ? (T >= 9 ? fE : fL(LB)) : (T >= 13 ? fS : fL(LC));
+        for (i = 0; i < N; i++) {
+            var pa = ph(0.05 + i * 0.03, 0.15 + i * 0.03), xa = WX(XA[i], 0), ya = WY(YA[i]), xb = WX(XA[i], 1), yb = lerp(WY(YB[i]), WYL(LOGB[i]), lg), xc = WX(XC[i], 2), yc = WY(YC[i]);
+            var X = lerp(lerp(xa, xb, mB), xc, mC), Y = lerp(lerp(ya, yb, mB), yc, mC);
+            var xd = ds === 2 ? XC[i] : XA[i], yd = ds === 0 ? YA[i] : ds === 1 ? YB[i] : YC[i], yh = fitNow(xd);
+            if (flat > 0 && ds === 0) Y = lerp(Y, WY(yd - yh + 8), flat);
+            PTS[i].visible = pa > 0.01; PTS[i].scale.setScalar(Math.max(pa, 0.01)); PTS[i].position.set(X, Y, 0);
+            var ra = vis(2, 3) * ph(2.1 + i * 0.01, 2.2 + i * 0.01) + vis(7, 8) * ph(7.3 + i * 0.01, 7.4 + i * 0.01), base = flat > 0 && ds === 0 ? WY(8) : (lg > 0.5 ? WYL(Math.log(Math.max(yh, 0.1))) : WY(yh));
+            setPost(RES[i], X, 0.02, Math.abs(Y - base) * ra, Math.min(Y, base)); RES[i].material.color.set(Y >= base ? '#ffb454' : '#ff5c8a');
+        }
+        // straight line (steps 1-2, 7, 12)
+        var la = vis(1, 3) * ph(1.15, 1.45) * (1 - flat) + vis(7, 8) * ph(7.15, 7.45) + vis(12, 13) * ph(12.15, 12.45), lc = ds === 0 ? LA : ds === 1 ? LB : LC, xmax = ds === 2 ? 24 : 10;
+        cLine.set(0, WX(0, ds), WY(lc[0]), 0.02); cLine.set(1, WX(xmax, ds), WY(lc[0] + lc[1] * xmax), 0.02); cLine.done(); cLine.m.visible = la > 0.01; cLine.m.material.opacity = la;
+        // curves
+        var ca = 0, cf = null, cz = ds;
+        if (ds === 0 && step >= 3 && step <= 5) { ca = ph(3.15, 3.6); cf = fQ; }
+        if (ds === 1 && step >= 8 && step <= 10) { ca = step === 8 ? ph(8.6, 8.9) : 1; cf = step === 8 ? null : fE; }
+        if (ds === 2 && step >= 13 && step <= 14) { ca = ph(13.15, 13.6); cf = fS; }
+        for (k = 0; k <= 160; k++) { var xx = xmax * k / 160, yy;
+            if (ds === 1 && step === 8) { yy = WYL(EB[0] + EB[1] * xx); } else yy = cf ? WY(cf(xx)) : 0;
+            cFit.set(k, WX(xx, ds), Math.min(Math.max(yy, -0.5), 6.6), 0.03); }
+        cFit.done(Math.max(2, Math.round(161 * cl(ca * 1.2)))); cFit.m.visible = ca > 0.01;
+        var oa = vis(5, 6) * ph(5.15, 5.6); for (k = 0; k <= 160; k++) { var x8 = 10 * k / 160; c8.set(k, WX(x8, 0), Math.min(Math.max(WY(f8(x8)), -0.5), 6.6), 0.04); } c8.done(Math.max(2, Math.round(161 * cl(oa * 1.2)))); c8.m.visible = oa > 0.01;
+        var pj = vis(10, 11) * ph(10.2, 10.6); for (k = 0; k < 60; k++) { var xp = 10 + 3 * k / 59; cProj.set(k, WX(xp, 1), Math.min(WY(fE(xp)), 9), 0.03); } cProj.done(Math.max(2, Math.round(60 * pj))); cProj.m.visible = pj > 0.01; cProj.m.material.opacity = 0.5;
+        // turning point
+        var tp = vis(4, 5) * ph(4.2, 4.4); setPost(top, WX(XSTAR, 0), 0.04, WY(YSTAR) * tp); topD.visible = tp > 0.01; topD.position.set(WX(XSTAR, 0), WY(YSTAR), 0.05);
+        // cycle markers
+        var cy = vis(14, 15) * ph(14.15, 14.4), pk = PEAK + 12; setPost(ampP, WX(pk, 2), 0.05, WY(AMP) * cy, WY(SC[0])); setBar(meanB, 0, WY(SC[0]), 0.02, WX(24, 2) * cy);
+        setBar(perB, WX(PEAK, 2), WY(SC[0] + AMP) + 0.3, 0.05, (WX(PEAK + 12, 2) - WX(PEAK, 2)) * cy * ph(14.4, 14.7));
+        // labels
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, t, a, c) { lb.p.set(x, y, 0); lb.a = a; setText(lb, t); lb.el.style.color = c || ''; };
+        if (step === 0) L(lbA, WX(5, 0), 5.6, 'r = ' + f2(RA) + ': almost no straight-line link', ph(0.8, 0.95));
+        if (step === 1) L(lbA, WX(9, 0), WY(fL(LA)(10)) + 0.4, 'straight line: R² = ' + f2(R2LA), ph(1.45, 1.6));
+        if (step === 2) L(lbA, WX(5, 0), 4.0, 'residuals: below, above, below → wrong shape', ph(2.75, 2.9), '#ffb454');
+        if (step === 3) L(lbA, WX(8.8, 0), WY(fQ(9)) + 0.6, 'quadratic: R² = ' + f2(R2QA), ph(3.6, 3.75), '#5cff9d');
+        if (step === 4) L(lbA, WX(XSTAR, 0), WY(YSTAR) + 0.55, 'turning point x* = ' + f2(XSTAR), ph(4.4, 4.55), '#ffb454');
+        if (step === 5) L(lbA, WX(5, 0), 6.2, 'degree 20: R² = ' + f2(R28) + ' but swings wildly', ph(5.6, 5.75), '#ff8fae');
+        if (step === 7) L(lbA, WX(4, 1), 4.6, 'line misses the curve: R² = ' + f2(R2LB), ph(7.45, 7.6));
+        if (step === 8) L(lbA, WX(5, 1), 5.8, 'on a log scale the curve becomes a line', ph(8.9, 9.0), '#5cff9d');
+        if (step === 9) L(lbA, WX(4.5, 1), 5.4, 'growth ' + (100 * GR).toFixed(1) + '% a year · doubles every ' + f1(DBL) + ' years', ph(9.4, 9.55), '#5cff9d');
+        if (step === 10) L(lbA, WX(9.4, 1), 6.6, 'beyond the data: a guess', ph(10.6, 10.75), '#ff8fae');
+        if (step === 12) L(lbA, WX(12, 2), 1.4, 'straight line: R² = ' + f2(R2LC), ph(12.45, 12.6));
+        if (step === 13) L(lbA, WX(12, 2), 5.6, 'sine + cosine: R² = ' + f2(R2SC), ph(13.6, 13.75), '#5cff9d');
+        if (step === 14) { L(lbA, WX(PEAK + 6, 2), WY(SC[0] + AMP) + 0.65, 'period 12 months', ph(14.6, 14.75), '#c9aaff'); L(lbB, WX(pk, 2) + 0.9, WY(SC[0] + AMP / 2), 'amplitude ' + f1(AMP), ph(14.4, 14.55), '#c9aaff'); L(lbC, WX(2, 2), WY(SC[0]) - 0.35, 'level ' + f1(SC[0]), ph(14.4, 14.55)); }
+        buildTable();
+        var hl = []; if (step === 1 || step === 2) hl = [0]; if (step === 3) hl = [1]; if (step === 4) hl = [4]; if (step === 5) hl = [2]; if (step === 7) hl = [0]; if (step === 8) hl = [1]; if (step === 9) hl = [2, 3, 4]; if (step === 12) hl = [0]; if (step === 13) hl = [1]; if (step === 14) hl = [2, 3, 4];
+        trs.forEach(function (tr, k) { var c = hl.indexOf(k) >= 0 ? 'hl' : ''; if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step === 0) st = 'r = <b>' + f2(RA) + '</b>';
+        else if (step <= 2) st = 'straight line R² = <b>' + f2(R2LA) + '</b>';
+        else if (step === 3) st = 'quadratic R² = <b>' + f2(R2QA) + '</b>';
+        else if (step === 4) st = 'best fertiliser x* = <b>' + f2(XSTAR) + '</b> → yield <b>' + f1(YSTAR) + '</b>';
+        else if (step === 5) st = 'degree 20 R² = <b>' + f2(R28) + '</b> (higher, but not better)';
+        else if (step === 7) st = 'straight line R² = <b>' + f2(R2LB) + '</b>';
+        else if (step === 8) st = 'ln y on x: R² = <b>' + f2(R2LOG) + '</b> · slope b = ' + f3(EB[1]);
+        else if (step >= 9 && step <= 10) st = 'growth = e^b − 1 = <b>' + (100 * GR).toFixed(1) + '%</b> · doubling time <b>' + f1(DBL) + '</b>';
+        else if (step === 12) st = 'straight line R² = <b>' + f2(R2LC) + '</b>';
+        else if (step >= 13 && step <= 14) st = 'R² = <b>' + f2(R2SC) + '</b> · amplitude <b>' + f2(AMP) + '</b> · peak month <b>' + f1(PEAK) + '</b>';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var WALL = [[4.6, 3.9, 14.8], [4.6, 3.9, 0], -2.0];
+    var CAM = [WALL, WALL, WALL, WALL, WALL, WALL, WALL, WALL, WALL, WALL, [[5.6, 3.6, 15.5], [5.6, 3.4, 0], -2.0], WALL, WALL, WALL, WALL, WALL];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fQ", "fE", "fS"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

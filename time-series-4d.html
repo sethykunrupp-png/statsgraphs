@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Time Series in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    @media (min-width: 761px) { #tbl { width: min(380px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="y equals trend plus seasonal plus residual">
+            <span class="p" id="fY">y<sub style="font-size:.55em">t</sub></span><span class="sym">=</span><span class="p" id="fT">T<sub style="font-size:.55em">t</sub></span> <span class="sym">+</span> <span class="p" id="fS">S<sub style="font-size:.55em">t</sub></span> <span class="sym">+</span> <span class="p" id="fE">e<sub style="font-size:.55em">t</sub></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- time series: trend, season, decomposition, autocorrelation, forecasting ----------
+    var STEPS = [
+        {
+                "t": "A series in time order",
+                "n": "Monthly tax revenue for four years. Each tower is one month. Unlike a cross-section, the order is the information: you cannot shuffle the months.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "The line plot",
+                "n": "Join the tops in order. The eye picks up two things at once: a slow climb, and a pattern that repeats every year.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Smooth it: the moving average",
+                "n": "Average each month with the 6 months before and after (a centred 12-month average). Each average covers a full year, so the seasonal ups and downs cancel and the underlying level shows.",
+                "s": "",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "The trend",
+                "n": "A straight line through time gives the trend: the average change per month. Here revenue grows steadily.",
+                "s": "T = b₀ + b₁t",
+                "on": [
+                        "fT"
+                ]
+        },
+        {
+                "t": "Remove the trend: the season appears",
+                "n": "Subtract the trend from each month. What is left swings above and below zero in the same pattern every year: the seasonal component.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Seasonal factors",
+                "n": "Average the detrended values for each calendar month. Every March and December are high (tax deadlines and year-end), mid-year months low. These 12 numbers are the seasonal factors.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Decomposition",
+                "n": "Split the series into layers: trend, seasonal and the residual left over. Adding the layers back gives the original series exactly.",
+                "s": "y = T + S + e",
+                "on": [
+                        "fY",
+                        "fT",
+                        "fS",
+                        "fE"
+                ]
+        },
+        {
+                "t": "The residual",
+                "n": "The residual is what trend and season cannot explain. It should look like random noise: no trend, no repeating pattern.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Seasonally adjusted series",
+                "n": "Subtract only the seasonal factors. The adjusted series (green) shows the underlying movement month by month, so a rise in December is not mistaken for real growth.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fS"
+                ]
+        },
+        {
+                "t": "Autocorrelation: compare with the past",
+                "n": "Lay a copy of the series shifted by k months on top of the original. Shifted by 1 month the two do not match well; shifted by 12 the peaks line up. The correlation at each shift is the autocorrelation at lag k.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "The correlogram",
+                "n": "Plot the autocorrelation for lags 1 to 24. The white band is ±1.96 ÷ √n: bars beyond it are significant. Big spikes at lags 12 and 24 reveal the yearly season.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Correlogram of the residuals",
+                "n": "After removing trend and season, the residual bars sit almost entirely inside the band. That is white noise: the model has captured the structure.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Forecasting",
+                "n": "Extend the trend and add the seasonal factor for each future month. The bars show a rough 95% range from the residual spread. Uncertainty grows further ahead.",
+                "s": "ŷ = T + S",
+                "on": [
+                        "fT",
+                        "fS"
+                ]
+        },
+        {
+                "t": "Growth rates: which comparison?",
+                "n": "Month-on-month change mixes growth with the season (December always jumps). Year-on-year change compares the same month a year apart, so the season cancels.",
+                "s": "",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Cautions",
+                "n": "Check for breaks (a new tax law, a crisis), moving holidays and outliers before modelling. Two series that both trend can look related when they are not: compare changes or residuals instead.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fT",
+                        "fS",
+                        "fE"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sdv(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / (a.length - 1)); }
+    var MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var SEAS0 = [6, -4, 14, -2, -6, -3, -1, -5, -4, 0, -3, 8], NT = 48, r0 = rng(41), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    var Y = []; for (var t0 = 0; t0 < NT; t0++) Y.push(80 + 0.8 * t0 + SEAS0[t0 % 12] + 3 * gauss());
+    // centred 12-month moving average (2 × 12)
+    var MA = Y.map(function (_, t) { if (t < 6 || t > NT - 7) return null; var s = Y[t - 6] / 2 + Y[t + 6] / 2; for (var k = t - 5; k <= t + 5; k++) s += Y[k]; return s / 12; });
+    // linear trend
+    var tm = (NT - 1) / 2, ym = mean(Y), sxy = 0, sxx = 0; Y.forEach(function (y, t) { sxy += (t - tm) * (y - ym); sxx += (t - tm) * (t - tm); }); var B1 = sxy / sxx, B0 = ym - B1 * tm, TR = function (t) { return B0 + B1 * t; };
+    // seasonal factors from y − trend, averaged by month and centred
+    var SF = []; for (var m0 = 0; m0 < 12; m0++) { var a = []; for (var t1 = m0; t1 < NT; t1 += 12) a.push(Y[t1] - TR(t1)); SF.push(mean(a)); } var sfm = mean(SF); SF = SF.map(function (v) { return v - sfm; });
+    var RES = Y.map(function (y, t) { return y - TR(t) - SF[t % 12]; }), SDR = sdv(RES), SA = Y.map(function (y, t) { return y - SF[t % 12]; });
+    function acf(x, k) { var m = mean(x), d = 0, n = 0; x.forEach(function (v) { d += (v - m) * (v - m); }); for (var t = k; t < x.length; t++) n += (x[t] - m) * (x[t - k] - m); return n / d; }
+    var ACFY = [], ACFR = []; for (var k0 = 1; k0 <= 24; k0++) { ACFY.push(acf(Y, k0)); ACFR.push(acf(RES, k0)); } var BAND = 1.96 / Math.sqrt(NT);
+    var FC = []; for (var h = 0; h < 12; h++) FC.push(TR(NT + h) + SF[(NT + h) % 12]);
+    var MOM = Y.map(function (y, t) { return t ? 100 * (y / Y[t - 1] - 1) : null; }), YOY = Y.map(function (y, t) { return t >= 12 ? 100 * (y / Y[t - 12] - 1) : null; });
+    var X = function (t) { return 0.2 + t * 0.215; }, H = function (y) { return y * 0.035; }, BASE = 1.6, SK = 0.09, ZS = 2.0, ZR = 4.2, ZA = 2.4;
+    grid.position.set(5.5, -0.03, -1.8);
+    // ----- observed towers -----
+    var TW = Y.map(function () { var b = box('#4dd2ff', 0.8, true); b.visible = false; return b; });
+    var FT = FC.map(function () { return box('#00ffff', 0.25, true); }), FB = FC.map(function () { return post('#00ffff', 1.3); });
+    var lbM = []; for (var t2 = 0; t2 < 60; t2 += 6) lbM.push({ t: t2, l: label(MN[t2 % 12] + ' ' + (21 + Math.floor(t2 / 12)), X(t2), -0.35, 0.5, 'tick') });
+    var line = polyline(NT, '#ffffff'), maL = polyline(NT, '#ffb454'), trL = bar('#ff5c8a', 1.3), saL = polyline(NT, '#5cff9d'), lagL = polyline(NT, '#ffb454');
+    // ----- decomposition layers -----
+    function signed(n, col) { var a = []; for (var i = 0; i < n; i++) { var b = box(col, 0.8, true); b.visible = false; a.push(b); } return a; }
+    var STW = signed(NT, '#b388ff'), RTW = signed(NT, '#ffb454'), base1 = box('#ffffff', 0.05, true), base2 = box('#ffffff', 0.05, true), trend3 = null;
+    function setSigned(b, x, z, v, a, sc, col) { var hh = Math.max(Math.abs(v) * sc, 0.01); b.visible = a > 0.01; b.material.opacity = 0.85 * a; b.children[0].material.opacity = Math.min(0.5, a); b.scale.set(0.17, hh * cl(a * 1.5), 0.6); b.position.set(x - 0.085, v >= 0 ? BASE : BASE - hh * cl(a * 1.5), z - 0.3); if (col) b.material.color.set(v >= 0 ? col[0] : col[1]); }
+    // ----- correlogram -----
+    var AC = signed(24, '#00ffff'), acBase = bar('#3c6d80', 0.5), acBand = strip(2, '#ffffff', 0), acBand2 = strip(2, '#ffffff', 0), lbAC = []; for (var k1 = 0; k1 < 24; k1 += 6) lbAC.push(label(String(k1 + 6), 0, BASE - 2.0, ZA, 'tick'));
+    var AXK = function (k) { return 0.6 + k * 0.42; }, AK = 2.4;
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, ''), lbL = [label('observed y', 0, 0, 0, 'key'), label('seasonal S', 0, 0, 0, 'key'), label('residual e', 0, 0, 0, 'key')];
+    lbA.el.style.fontSize = '16px'; lbL[1].el.style.color = '#c9aaff'; lbL[2].el.style.color = '#ffb454';
+
+    // ----- table -----
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table>' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 3 ? 0 : step <= 8 ? 1 : step <= 11 ? 2 : step === 12 ? 3 : 4; if (k === tKey) return; tKey = k;
+        if (k === 0) card('Monthly revenue, first 12 months', ['month', 'y', '12-month MA', 'trend'], Y.slice(0, 12).map(function (y, t) { return [MN[t] + ' 21', f1(y), MA[t] === null ? '—' : f1(MA[t]), f1(TR(t))]; }));
+        else if (k === 1) card('Seasonal factors (average of y − trend)', ['month', 'S', 'month', 'S'], [0, 1, 2, 3, 4, 5].map(function (m) { return [MN[m], (SF[m] >= 0 ? '+' : '−') + Math.abs(SF[m]).toFixed(1), MN[m + 6], (SF[m + 6] >= 0 ? '+' : '−') + Math.abs(SF[m + 6]).toFixed(1)]; }));
+        else if (k === 2) card('Autocorrelation (95% band ±' + f2(BAND) + ')', ['lag', 'series y', 'residual e'], [1, 2, 3, 6, 11, 12, 13, 24].map(function (l) { return [String(l), f2(ACFY[l - 1]), f2(ACFR[l - 1])]; }));
+        else if (k === 3) card('Forecast: trend + season, next 12 months', ['month', 'forecast', '95% range'], FC.map(function (f, h) { return [MN[(NT + h) % 12] + ' 25', f1(f), f1(f - 1.96 * SDR) + ' to ' + f1(f + 1.96 * SDR)]; }));
+        else card('Growth rates, last 12 months of 2024', ['month', 'y', 'vs last month', 'vs same month last year'], Y.slice(36).map(function (y, i) { var t = 36 + i; return [MN[t % 12], f1(y), (MOM[t] >= 0 ? '+' : '') + f1(MOM[t]) + '%', (YOY[t] >= 0 ? '+' : '') + f1(YOY[t]) + '%']; }));
+    }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        var DIM = { 1: 0.4, 2: 0.35, 3: 0.35, 4: 0.18, 5: 0.18, 6: 0.18, 7: 0.15, 8: 0.35, 9: 0.3, 10: 0.06, 11: 0.06, 12: 0.4 }, obsA = DIM[step] === undefined ? 1 : lerp(1, DIM[step], ph(step + 0.05, step + 0.3)), sadj = vis(8, 9) * ph(8.1, 8.5);
+        Y.forEach(function (y, t) { var a = ph(0.05 + t * 0.012, 0.15 + t * 0.012) * obsA, hh = H(lerp(y, SA[t], sadj)); var b = TW[t]; b.visible = a > 0.01; b.material.opacity = 0.75 * a; b.children[0].material.opacity = Math.min(0.5, a); b.scale.set(0.17, Math.max(hh, 0.01), 0.6); b.position.set(X(t) - 0.085, 0, -0.3); b.visible = a > 0.02;
+            b.material.color.set(step === 5 && (t % 12 === 2 || t % 12 === 11) ? '#ffffff' : '#4dd2ff'); line.set(t, X(t), H(y) + 0.02, 0.32); maL.set(t, X(t), MA[t] === null ? H(TR(t)) : H(MA[t]), 0.34); saL.set(t, X(t), H(SA[t]) + 0.02, 0.36); });
+        lbM.forEach(function (o) { o.l.a = 0.8 * (o.t < 48 ? 1 : vis(12, 13)); });
+        var la = ph(1.1, 1.5) * (1 - ph(4.0, 4.1)); line.done(Math.max(2, Math.round(NT * cl(la * 1.3)))); line.m.visible = la > 0.01; line.m.material.opacity = la;
+        var ma = vis(2, 4) * ph(2.15, 2.6); var lo = 6, hi = NT - 6; maL.done(); maL.m.geometry.setDrawRange(lo, Math.max(2, Math.round((hi - lo) * cl(ma * 1.3)))); maL.m.visible = ma > 0.01; maL.m.material.opacity = ma;
+        var ta = vis(3, 4) * ph(3.15, 3.5) + vis(12, 13); setSeg(trL, X(0), H(TR(0)), X(lerp(0, step === 12 ? 59 : 47, cl(ta))), H(TR(lerp(0, step === 12 ? 59 : 47, cl(ta)))), 0.38); trL.visible = ta > 0.01;
+        saL.done(); saL.m.visible = sadj > 0.01; saL.m.material.opacity = sadj;
+        // decomposition layers (steps 4–7)
+        var dec = vis(4, 8), sa_ = ph(4.1, 4.6), ra_ = ph(6.2, 6.6) * vis(4, 8), sp = ph(6.1, 6.6) * vis(4, 8);
+        base1.visible = dec > 0.01; base2.visible = ra_ > 0.01; base1.material.opacity = base2.material.opacity = 0.06 * dec; base1.scale.set(X(47) + 0.3, 0.02, 0.8); base2.scale.set(X(47) + 0.3, 0.02, 0.8); base1.position.set(0, BASE, ZS - 0.4); base2.position.set(0, BASE, ZR - 0.4);
+        Y.forEach(function (y, t) { var a1 = dec * ph(4.1 + t * 0.008, 4.2 + t * 0.008); setSigned(STW[t], X(t), ZS, SF[t % 12], a1, SK * 1.6, ['#b388ff', '#7a5cc9']); setSigned(RTW[t], X(t), ZR, RES[t], ra_ * ph(6.2 + t * 0.008, 6.3 + t * 0.008), SK * 1.6, ['#ffb454', '#ff5c8a']); });
+        lbL[0].p.set(X(47) + 0.6, H(Y[47]), 0); lbL[1].p.set(X(47) + 0.6, BASE, ZS); lbL[2].p.set(X(47) + 0.6, BASE, ZR); lbL[0].a = sp; lbL[1].a = dec; lbL[2].a = ra_;
+        // lag comparison (step 9)
+        var lgA = vis(9, 10), lag = Math.round(lerp(1, 12, ph(9.2, 9.7)));
+        for (i = 0; i < NT; i++) { var src = i - lag; lagL.set(i, X(i), H(src >= 0 ? Y[src] : Y[0]) + 0.02, 0.4); } lagL.done(); lagL.m.geometry.setDrawRange(lag, NT - lag); lagL.m.visible = lgA > 0.01; lagL.m.material.opacity = lgA;
+        line.m.visible = line.m.visible || lgA > 0.01; if (lgA > 0.01) { line.done(); line.m.material.opacity = 1; }
+        // correlogram (steps 10–11)
+        var acA = vis(10, 12), useR = step === 11 ? ph(11.1, 11.5) : 0;
+        for (k = 0; k < 24; k++) { var v = lerp(ACFY[k], ACFR[k], useR); setSigned(AC[k], AXK(k), ZA, v, acA * ph(10.1 + k * 0.02, 10.2 + k * 0.02), AK, ['#00ffff', '#ff5c8a']); AC[k].scale.x = 0.25; AC[k].position.x = AXK(k) - 0.125; if (k === 11 || k === 23) AC[k].material.color.set('#ffffff'); }
+        setBar(acBase, AXK(0) - 0.3, BASE, ZA, AXK(23) - AXK(0) + 0.6); acBase.visible = acA > 0.01;
+        acBand.set(0, AXK(0) - 0.3, BASE + BAND * AK, ZA - 0.32, AXK(0) - 0.3, BASE - BAND * AK, ZA - 0.32); acBand.set(1, AXK(23) + 0.3, BASE + BAND * AK, ZA - 0.32, AXK(23) + 0.3, BASE - BAND * AK, ZA - 0.32); acBand.done(); acBand.m.visible = acA > 0.01; acBand.m.material.opacity = 0.15 * acA;
+        lbAC.forEach(function (l, j) { l.p.x = AXK(j * 6 + 5); l.a = 0.8 * acA; });
+        // forecast (step 12)
+        var fa = vis(12, 13) * ph(12.3, 12.8);
+        FC.forEach(function (f, h) { var a = fa * ph(12.3 + h * 0.03, 12.4 + h * 0.03); FT[h].visible = a > 0.01; FT[h].material.opacity = 0.3 * a; FT[h].children[0].material.opacity = 0.6 * a; FT[h].scale.set(0.17, Math.max(H(f), 0.01), 0.6); FT[h].position.set(X(NT + h) - 0.085, 0, -0.3); setPost(FB[h], X(NT + h), 0.4, H(3.92 * SDR) * a, H(f - 1.96 * SDR)); });
+        // labels
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, z, t, a, c) { lb.p.set(x, y, z); lb.a = a; setText(lb, t); lb.el.style.color = c || ''; };
+        if (step === 2) L(lbA, X(30), H(130), 0.4, '12-month moving average: the season cancels out', ph(2.6, 2.75), '#ffb454');
+        if (step === 3) L(lbA, X(40), H(TR(47)) + 1.4, 0.4, 'trend: +' + f2(B1) + ' a month', ph(3.5, 3.65), '#ff8fae');
+        if (step === 5) L(lbA, X(24), BASE + 2.0, ZS, 'every March and December are high', ph(5.3, 5.45), '#c9aaff');
+        if (step === 6) L(lbA, X(22), H(140), 0, 'y = trend + seasonal + residual', ph(6.6, 6.75));
+        if (step === 7) L(lbA, X(24), BASE + 1.4, ZR, 'residual SD = ' + f1(SDR) + ': no pattern left', ph(7.3, 7.45), '#ffb454');
+        if (step === 8) L(lbA, X(30), H(135), 0.4, 'seasonally adjusted: the trend shows clearly', ph(8.5, 8.65), '#5cff9d');
+        if (step === 9) L(lbA, X(24), H(140), 0.4, 'shifted by ' + lag + ' month' + (lag > 1 ? 's' : '') + ': r = ' + f2(ACFY[lag - 1]), ph(9.2, 9.35), '#ffb454');
+        if (step === 10) L(lbA, AXK(11), BASE + ACFY[11] * AK + 0.5, ZA, 'lag 12: r = ' + f2(ACFY[11]), ph(10.6, 10.75), '#ffffff');
+        if (step === 11) L(lbA, AXK(12), BASE + 1.3, ZA, 'residuals: almost all bars inside the band', ph(11.5, 11.65), '#5cff9d');
+        if (step === 12) L(lbA, X(54), H(FC[11] + 2 * SDR) + 0.5, 0.4, '2025 forecast ± 2 SD', ph(12.8, 12.95), '#00ffff');
+        buildTable();
+        var hl = []; if (step === 2) hl = [6, 7, 8, 9, 10, 11]; if (step === 5) hl = [2, 5]; if (step === 10) hl = [5, 7]; if (step === 13) hl = [];
+        trs.forEach(function (tr, k) { var c = hl.indexOf(k) >= 0 ? 'hl' : ''; if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step === 0) st = '48 months · Jan 2021 to Dec 2024';
+        else if (step === 3) st = 'trend ŷ = ' + f1(B0) + ' + ' + f2(B1) + 't';
+        else if (step === 5) st = 'March <b>+' + f1(SF[2]) + '</b> · December <b>+' + f1(SF[11]) + '</b> · May <b>' + f1(SF[4]) + '</b>';
+        else if (step === 7) st = 'residual SD <b>' + f1(SDR) + '</b>';
+        else if (step === 9) st = 'r(lag 1) = <b>' + f2(ACFY[0]) + '</b> · r(lag 12) = <b>' + f2(ACFY[11]) + '</b>';
+        else if (step === 10) st = 'band ±' + f2(BAND) + ' · lag 12 = <b>' + f2(ACFY[11]) + '</b> · lag 24 = <b>' + f2(ACFY[23]) + '</b>';
+        else if (step === 11) st = 'residual lag 1 = <b>' + f2(ACFR[0]) + '</b> · lag 12 = <b>' + f2(ACFR[11]) + '</b>';
+        else if (step === 12) st = 'Dec 2025 forecast <b>' + f1(FC[11]) + '</b> ± ' + f1(1.96 * SDR);
+        else if (step === 13) st = 'Dec 2024: vs Nov <b>' + f1(MOM[47]) + '%</b> · vs Dec 2023 <b>' + f1(YOY[47]) + '%</b>';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var FR = [[5.4, 3.6, 14], [5.4, 2.6, 0], -1.8], DEC = [[5.6, 9.5, 14.5], [5.6, 1.2, 1.6], -1.8], ACV = [[5.6, 3.6, 13.5], [5.6, 1.9, 2.4], -1.8], FCV = [[6.6, 3.6, 15], [6.6, 2.6, 0], -1.8];
+    var CAM = [FR, FR, FR, FR, DEC, DEC, DEC, DEC, FR, FR, ACV, ACV, FCV, FR, DEC];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fY", "fT", "fS", "fE"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

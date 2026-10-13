@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Treatment and Control in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.pt td, #tbl table.pt th { text-align: left; white-space: normal; }
+    @media (min-width: 761px) { #tbl { width: min(380px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Effect equals treated outcome minus control outcome">
+            <span class="p" id="fE">effect</span><span class="sym">=</span><span class="p" id="fT">ȳ<sub style="font-size:.55em">treated</sub></span> <span class="sym">−</span> <span class="p" id="fC">ȳ<sub style="font-size:.55em">control</sub></span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- treatment and control: randomisation, confounding, DiD, RD, dose-response, survival ----------
+    var STEPS = [
+        {
+                "t": "Does the programme work?",
+                "n": "Sixty people who could join a job-training programme. Each has a hidden ability (brighter = higher) that also raises income. We want the effect of training alone.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Random assignment",
+                "n": "Flip a coin for each person: heads to training (amber), tails to control (blue). Chance, not choice, decides who is treated.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "The groups are alike",
+                "n": "Because of the coin, both groups have about the same mean ability and every other trait, measured or not. Any later difference can be credited to the training.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Outcomes",
+                "n": "Months later, measure each person's income: the height of each post. The amber group is higher on average.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "The treatment effect",
+                "n": "Effect = mean of treated − mean of control. The 95% confidence interval shows how precise it is; if it excludes 0, the effect is significant.",
+                "s": "",
+                "on": [
+                        "fE",
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Without randomisation: self-selection",
+                "n": "Now let people choose. The more able ones are keener to join. The groups are no longer alike: the treated have higher ability.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Confounding",
+                "n": "The naive gap in income is much bigger than the true effect, because ability raises income and also made people join. Ability is a confounder: it creates part of the gap.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Adjusting for the confounder",
+                "n": "Plot income against ability. Comparing people with the same ability, the two groups sit on parallel lines, and the gap between them is close to the true effect. This only works if every confounder is measured.",
+                "s": "y = b₀ + b₁·treated + b₂·ability",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Difference-in-differences",
+                "n": "When randomising is not possible, follow both groups over time. Training starts after period 4 for the treated group only.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "The DiD estimate",
+                "n": "The dashed line is where the treated group would have gone without training: its own start plus the control group's change. The effect is the treated change minus the control change.",
+                "s": "DiD = Δtreated − Δcontrol",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Parallel trends",
+                "n": "DiD assumes the groups would have moved in parallel without treatment. Check it before treatment: here the lines run parallel, so the assumption is plausible.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Regression discontinuity",
+                "n": "A scholarship goes to everyone scoring 60 or more. Fit a line on each side of the cutoff. The jump in outcome at exactly 60 is the effect of the scholarship.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Only near the cutoff",
+                "n": "People just below and just above 60 are almost identical, so the comparison is fair there. The estimate uses a band around the cutoff and applies to people near it, not to everyone.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Dose-response",
+                "n": "If more training brings a bigger gain, the evidence for cause is stronger than one difference. The slope is the gain per extra hour.",
+                "s": "",
+                "on": [
+                        "fE"
+                ]
+        },
+        {
+                "t": "Survival curves (Kaplan-Meier)",
+                "n": "How long until each person finds a job? Each curve drops when someone finds one. Ticks mark people who left the study still searching (censored); they count until they leave.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Reading the curves",
+                "n": "Where a curve crosses the 50% line is the median time to a job. The treated curve falls faster: training shortens job search. A log-rank test compares the two curves.",
+                "s": "",
+                "on": [
+                        "fT",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Choosing a design",
+                "n": "Randomise when you can. Otherwise use a design whose assumption you can defend: measured confounders, parallel trends, or a sharp cutoff.",
+                "s": "",
+                "on": [
+                        "fE",
+                        "fT",
+                        "fC"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sdv(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / (a.length - 1)); }
+    function solve(A, v) { var n = v.length, M = A.map(function (r, i) { return r.concat([v[i]]); });
+        for (var c = 0; c < n; c++) { var p = c; for (var r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r; var tm = M[c]; M[c] = M[p]; M[p] = tm;
+            for (r = 0; r < n; r++) if (r !== c) { var f = M[r][c] / M[c][c]; for (var k = c; k <= n; k++) M[r][k] -= f * M[c][k]; } }
+        return M.map(function (r, i) { return r[n] / r[i]; }); }
+    function ols(rows, y) { var k = rows[0].length, A = [], v = [], a, b; for (a = 0; a < k; a++) { A.push([]); v.push(0); for (b = 0; b < k; b++) A[a].push(0); }
+        rows.forEach(function (r, i) { for (a = 0; a < k; a++) { v[a] += r[a] * y[i]; for (b = 0; b < k; b++) A[a][b] += r[a] * r[b]; } }); return solve(A, v); }
+    var r0 = rng(53), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    var NP = 60, TRUE = 3, AB = [], EPS = [], RT = [], ST = [];
+    for (var i0 = 0; i0 < NP; i0++) { AB.push(gauss()); EPS.push(2 * gauss()); }
+    var perm = AB.map(function (_, i) { return i; }); for (i0 = NP - 1; i0 > 0; i0--) { var j0 = Math.floor(r0() * (i0 + 1)), tq = perm[i0]; perm[i0] = perm[j0]; perm[j0] = tq; }
+    perm.forEach(function (p, r) { RT[p] = r < NP / 2 ? 1 : 0; });
+    var selO = AB.map(function (a, i) { return { i: i, s: a + 0.6 * gauss() }; }).sort(function (a, b) { return b.s - a.s; }); selO.forEach(function (o, r) { ST[o.i] = r < NP / 2 ? 1 : 0; });
+    var YR = AB.map(function (a, i) { return 20 + 4 * a + TRUE * RT[i] + EPS[i]; }), YS = AB.map(function (a, i) { return 20 + 4 * a + TRUE * ST[i] + EPS[i]; });
+    function grp(y, t, g) { return y.filter(function (_, i) { return t[i] === g; }); }
+    function eff(y, t) { var a = grp(y, t, 1), b = grp(y, t, 0), d = mean(a) - mean(b), se = Math.sqrt(sdv(a) * sdv(a) / a.length + sdv(b) * sdv(b) / b.length); return { mt: mean(a), mc: mean(b), d: d, se: se, lo: d - 1.96 * se, hi: d + 1.96 * se }; }
+    var ER = eff(YR, RT), ES = eff(YS, ST), BALR = [mean(grp(AB, RT, 1)), mean(grp(AB, RT, 0))], BALS = [mean(grp(AB, ST, 1)), mean(grp(AB, ST, 0))];
+    var ADJ = ols(AB.map(function (a, i) { return [1, ST[i], a]; }), YS);
+    // difference-in-differences
+    var PER = 8, DC = [], DT = []; for (var p0 = 0; p0 < PER; p0++) { DC.push(20 + 0.8 * p0 + 0.4 * gauss()); DT.push(23 + 0.8 * p0 + (p0 >= 4 ? TRUE : 0) + 0.4 * gauss()); }
+    var preC = mean(DC.slice(0, 4)), postC = mean(DC.slice(4)), preT = mean(DT.slice(0, 4)), postT = mean(DT.slice(4)), DID = (postT - preT) - (postC - preC);
+    // regression discontinuity
+    var NR = 80, RX = [], RY = []; for (var k0 = 0; k0 < NR; k0++) { var sc = 30 + 60 * r0(); RX.push(sc); RY.push(10 + 0.15 * sc + (sc >= 60 ? 4 : 0) + 1.2 * gauss()); }
+    var BW = 15, side = function (lo, hi) { var rr = [], yy = []; RX.forEach(function (x, i) { if (x >= lo && x < hi) { rr.push([1, x - 60]); yy.push(RY[i]); } }); return ols(rr, yy); };
+    var RL = side(60 - BW, 60), RH = side(60, 60 + BW), JUMP = RH[0] - RL[0];
+    // dose-response
+    var ND = 40, DH = [], DG = []; for (k0 = 0; k0 < ND; k0++) { var hh = 40 * r0(); DH.push(hh); DG.push(0.12 * hh + 0.8 * gauss()); }
+    var DR = ols(DH.map(function (h) { return [1, h]; }), DG);
+    // survival: months until a job, censored at 12
+    function times(rate) { var a = []; for (var i = 0; i < 30; i++) { var t = -Math.log(r0() + 1e-9) / rate, c = r0() < 0.15 ? 2 + 10 * r0() : 12; a.push({ t: Math.min(t, c), ev: t <= c }); } return a; }
+    var KT = times(0.22), KC = times(0.11);
+    function km(d) { var s = d.slice().sort(function (a, b) { return a.t - b.t; }), atRisk = s.length, S = 1, pts = [[0, 1]], cens = [], med = null;
+        s.forEach(function (o) { if (o.ev) { pts.push([o.t, S]); S *= (atRisk - 1) / atRisk; pts.push([o.t, S]); if (med === null && S <= 0.5) med = o.t; } else cens.push([o.t, S]); atRisk--; }); pts.push([12, S]); return { pts: pts, cens: cens, end: S, med: med }; }
+    var KMT = km(KT), KMC = km(KC);
+    // ---------- world ----------
+    grid.position.set(5.5, -0.03, -1);
+    var H = function (y) { return y * 0.11; }, home = [], posR = [], posS = [];
+    function blockPos(t, flags) { var cnt = [0, 0], out = []; flags.forEach(function (f, i) { var k = cnt[f]++; out[i] = [(f ? 0.8 : 6.4) + (k % 5) * 0.9, 0, 1.2 - Math.floor(k / 5) * 0.9]; }); return out; }
+    for (i0 = 0; i0 < NP; i0++) home.push([0.8 + (i0 % 10) * 1.05, 0, 1.2 - Math.floor(i0 / 10) * 0.9]);
+    posR = blockPos(0, RT); posS = blockPos(0, ST);
+    var sph = new THREE.SphereGeometry(0.17, 14, 10), PP = [], PO = [];
+    for (i0 = 0; i0 < NP; i0++) { var m = new THREE.Mesh(sph, mat('#ffffff')); scene.add(m); PP.push(m); PO.push(post('#ffffff', 0.7)); }
+    var mT = bar('#ffb454', 1.3), mC = bar('#4dd2ff', 1.3), ciB = post('#ffffff', 2), ciT = bar('#ffffff', 1), ciL = bar('#ffffff', 1), effB = post('#5cff9d', 3);
+    // scatter wall for adjustment
+    var AX = function (a) { return 5.5 + a * 1.9; }, adjT = bar('#ffb454', 1.3), adjC = bar('#4dd2ff', 1.3);
+    // DiD
+    var DY = function (v) { return (v - 18) * 0.42; }, PX = function (p) { return 1.2 + p * 1.25; }, dT = polyline(PER, '#ffb454'), dC = polyline(PER, '#4dd2ff'), dCF = polyline(5, '#ffb454', 0.5), dS = [], startL = post('#ffffff', 1.2), didB = post('#5cff9d', 3);
+    for (p0 = 0; p0 < 2 * PER; p0++) { var ms = new THREE.Mesh(sph, mat(p0 < PER ? '#ffb454' : '#4dd2ff')); ms.visible = false; scene.add(ms); dS.push(ms); }
+    // RD
+    var RXW = function (x) { return (x - 30) * 0.18; }, RS = [], rdL = bar('#4dd2ff', 1.3), rdH = bar('#ffb454', 1.3), rdCut = post('#ffffff', 1.1), rdJ = post('#5cff9d', 3), rdBand = strip(2, '#ffffff', 0);
+    for (k0 = 0; k0 < NR; k0++) { var mr = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), mat(RX[k0] >= 60 ? '#ffb454' : '#4dd2ff')); mr.visible = false; scene.add(mr); RS.push(mr); }
+    // dose-response
+    var DXW = function (h) { return 0.6 + h * 0.25; }, DS = [], drL = bar('#5cff9d', 1.3);
+    for (k0 = 0; k0 < ND; k0++) { var md = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), mat('#b388ff')); md.visible = false; scene.add(md); DS.push(md); }
+    // survival
+    var KXW = function (t) { return 0.6 + t * 0.8; }, KYW = function (s) { return 0.3 + s * 4.6; }, kmT = polyline(KMT.pts.length, '#ffb454'), kmC = polyline(KMC.pts.length, '#4dd2ff'), kHalf = bar('#ffffff', 0.7), cm = [];
+    KMT.cens.concat(KMC.cens).forEach(function (c, k) { var p = post(k < KMT.cens.length ? '#ffb454' : '#4dd2ff', 1.2); p.visible = false; cm.push(p); });
+    var axX = bar('#3c6d80', 0.5), axY = post('#3c6d80'), tks = []; for (k0 = 0; k0 < 7; k0++) tks.push(label('', 0, -0.35, 0, 'tick'));
+    var lbX = label('', 0, 0, 0, 'key', true), lbY = label('', 0, 0, 0, 'key');
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, ''), lbG1 = label('treatment', 2.6, 0.2, 2.2, 'key'), lbG2 = label('control', 8.2, 0.2, 2.2, 'key');
+    lbA.el.style.fontSize = '16px'; lbG1.el.style.color = '#ffb454'; lbG2.el.style.color = '#4dd2ff';
+    var abCol = function (a) { var c = new THREE.Color(); c.setHSL(0.52, 0.0 + cl(0.5 + a * 0.3), 0.35 + cl(0.5 + a * 0.25) * 0.5); return c; };
+
+    // ---------- table ----------
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table class="pt">' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 4 ? 0 : step <= 7 ? 1 : step <= 10 ? 2 : step <= 12 ? 3 : step === 13 ? 4 : step <= 15 ? 5 : 6; if (k === tKey) return; tKey = k;
+        if (k === 0) card('Randomised: 30 treated, 30 control', ['', 'treated', 'control'], [['mean ability (before)', f2(BALR[0]), f2(BALR[1])], ['mean income (after)', f1(ER.mt), f1(ER.mc)], ['difference', f2(ER.d), ''], ['standard error', f2(ER.se), ''], ['95% CI', f2(ER.lo) + ' to ' + f2(ER.hi), ''], ['true effect (built in)', String(TRUE), '']]);
+        else if (k === 1) card('Self-selected groups', ['', 'value'], [['mean ability: treated · control', f2(BALS[0]) + ' · ' + f2(BALS[1])], ['naive difference in income', f2(ES.d)], ['adjusted for ability (regression)', f2(ADJ[1])], ['true effect', String(TRUE)], ['bias of the naive estimate', f2(ES.d - TRUE)]]);
+        else if (k === 2) card('Difference-in-differences (mean income)', ['', 'before', 'after', 'change'], [['treated', f1(preT), f1(postT), f2(postT - preT)], ['control', f1(preC), f1(postC), f2(postC - preC)], ['DiD = treated change − control change', '', '', '<b>' + f2(DID) + '</b>']]);
+        else if (k === 3) card('Regression discontinuity at score 60', ['', 'value'], [['bandwidth', '± ' + BW + ' points'], ['line just below: value at 60', f2(RL[0])], ['line just above: value at 60', f2(RH[0])], ['jump = effect at the cutoff', '<b>' + f2(JUMP) + '</b>'], ['true jump (built in)', '4']]);
+        else if (k === 4) card('Dose-response', ['', 'value'], [['slope: gain per training hour', f2(DR[1])], ['gain at 10 hours', f2(DR[0] + 10 * DR[1])], ['gain at 40 hours', f2(DR[0] + 40 * DR[1])]]);
+        else if (k === 5) card('Kaplan-Meier: share still without a job', ['', 'treated', 'control'], [['people', '30', '30'], ['found a job by month 12', String(KT.filter(function (o) { return o.ev; }).length), String(KC.filter(function (o) { return o.ev; }).length)], ['censored (left the study)', String(KMT.cens.length), String(KMC.cens.length)], ['median months to a job', KMT.med === null ? '> 12' : f1(KMT.med), KMC.med === null ? '> 12' : f1(KMC.med)], ['still searching at 12 months', Math.round(100 * KMT.end) + '%', Math.round(100 * KMC.end) + '%']]);
+        else card('Which design, which assumption?', ['design', 'estimate', 'key assumption'], [['randomised trial', 'difference in means', 'random assignment; nobody switches'], ['regression adjustment', 'coefficient on treatment', 'all confounders measured'], ['difference-in-differences', 'change minus change', 'parallel trends without treatment'], ['regression discontinuity', 'jump at the cutoff', 'nothing else changes at the cutoff'], ['dose-response', 'slope', 'more dose → more effect, no confounding'], ['survival curves', 'curves, median time', 'censoring unrelated to outcome']]);
+    }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        // ----- people (steps 0-7) -----
+        var pa = 1 - ph(8.0, 8.3) + ph(16.1, 16.5), toR = ph(1.1, 1.8), toS = ph(5.1, 5.8), rise = ph(3.1, 3.6) * (1 - ph(5.0, 5.15)) + ph(5.9, 6.3) * (1 - ph(7.0, 7.15)), wall = ph(7.1, 7.7) * (1 - ph(16.0, 16.4));
+        var Yuse = T < 5 ? YR : YS, flags = T < 5 ? RT : ST, showT = T >= 1.1;
+        for (i = 0; i < NP; i++) {
+            var p = [lerp(home[i][0], posR[i][0], toR), 0, lerp(home[i][2], posR[i][2], toR)];
+            if (T >= 5) p = [lerp(posR[i][0], posS[i][0], toS), 0, lerp(posR[i][2], posS[i][2], toS)];
+            var hgt = H(Yuse[i]) * rise, wp = [AX(AB[i]), H(YS[i]), 0];
+            var P = [lerp(p[0], wp[0], wall), lerp(0.18 + hgt, wp[1], wall), lerp(p[2], wp[2], wall)];
+            PP[i].visible = pa > 0.01 && ph(0.05 + i * 0.008, 0.12 + i * 0.008) > 0; PP[i].position.set(P[0], P[1], P[2]); PP[i].material.opacity = pa;
+            var col = (showT && (step < 5 || toS > 0.5) && step !== 0) ? (flags[i] ? new THREE.Color('#ffb454') : new THREE.Color('#4dd2ff')) : abCol(AB[i]);
+            if ((step === 0 || step === 5 || step === 6) && T < 7) { var ac = abCol(AB[i]); col = step === 0 ? ac : col.clone().lerp(ac, 0.45); }
+            PP[i].material.color.copy(col);
+            setPost(PO[i], P[0], P[2], hgt * (1 - wall), 0.0); PO[i].material.color.copy(col); PO[i].material.opacity = 0.6 * pa;
+        }
+        lbG1.a = lbG2.a = (ph(1.6, 1.8) * (1 - ph(7.0, 7.2)));
+        // group means and CI (steps 3-4, 6)
+        var E = T < 5 ? ER : ES, ma = vis(3, 5) * ph(3.5, 3.7) + vis(6, 7) * ph(6.3, 6.5);
+        setBar(mT, 0.5, H(E.mt) + 0.18, 2.0, 4.2 * ma); setBar(mC, 6.1, H(E.mc) + 0.18, 2.0, 4.2 * ma);
+        var ca = vis(4, 5) * ph(4.2, 4.5); setPost(effB, 5.5, 2.0, (H(E.mt) - H(E.mc)) * ca, H(E.mc) + 0.18); setPost(ciB, 5.85, 2.0, (H(E.hi) - H(E.lo)) * ca, H(E.mc) + 0.18 + H(E.lo)); setBar(ciT, 5.7, H(E.mc) + 0.18 + H(E.hi), 2.0, 0.3 * ca); setBar(ciL, 5.7, H(E.mc) + 0.18 + H(E.lo), 2.0, 0.3 * ca);
+        // adjustment wall (step 7)
+        var wa = vis(7, 8) * ph(7.6, 7.9); setSeg(adjT, AX(-2.2), H(ADJ[0] + ADJ[1] + ADJ[2] * -2.2), AX(2.2), H(ADJ[0] + ADJ[1] + ADJ[2] * 2.2), 0.02); setSeg(adjC, AX(-2.2), H(ADJ[0] + ADJ[2] * -2.2), AX(2.2), H(ADJ[0] + ADJ[2] * 2.2), 0.02); adjT.visible = adjC.visible = wa > 0.01; adjT.material.opacity = adjC.material.opacity = wa;
+        // axes (shared, set per scene)
+        var ax = 0, xl = '', yl = '', tk = [];
+        if (step === 7) { ax = wall; xl = 'ability (hidden factor)'; yl = 'income'; tk = [[-2, AX(-2)], [-1, AX(-1)], [0, AX(0)], [1, AX(1)], [2, AX(2)]]; }
+        if (step >= 8 && step <= 10) { ax = ph(8.1, 8.4); xl = 'period'; yl = 'mean income'; tk = [0, 1, 2, 3, 4, 5, 6, 7].map(function (p) { return [p + 1, PX(p)]; }).slice(0, 7); }
+        if (step >= 11 && step <= 12) { ax = ph(11.1, 11.4); xl = 'exam score'; yl = 'later income'; tk = [30, 40, 50, 60, 70, 80, 90].map(function (s) { return [s, RXW(s)]; }); }
+        if (step === 13) { ax = ph(13.1, 13.4); xl = 'training hours'; yl = 'income gain'; tk = [0, 10, 20, 30, 40].map(function (h) { return [h, DXW(h)]; }); }
+        if (step >= 14 && step <= 15) { ax = ph(14.1, 14.4); xl = 'months'; yl = 'share still searching'; tk = [0, 2, 4, 6, 8, 10, 12].map(function (t) { return [t, KXW(t)]; }); }
+        setBar(axX, 0, 0, 0, 11.2 * (ax > 0.01 ? 1 : 0)); axX.visible = ax > 0.01; setPost(axY, 0, 0, 5.4); axY.visible = ax > 0.01;
+        tks.forEach(function (l, k) { if (tk[k]) { l.p.set(tk[k][1], -0.35, 0.2); setText(l, String(tk[k][0])); l.a = 0.8 * ax; } else l.a = 0; });
+        lbX.p.set(11.4, 0, 0); lbY.p.set(0, 5.8, 0); setText(lbX, xl); setText(lbY, yl); lbX.a = lbY.a = ax;
+        // DiD
+        var da = vis(8, 11);
+        for (var q = 0; q < PER; q++) { var a1 = da * ph(8.2 + q * 0.06, 8.3 + q * 0.06); dT.set(q, PX(q), DY(DT[q]), 0); dC.set(q, PX(q), DY(DC[q]), 0); dS[q].visible = a1 > 0.01; dS[q].position.set(PX(q), DY(DT[q]), 0); dS[PER + q].visible = a1 > 0.01; dS[PER + q].position.set(PX(q), DY(DC[q]), 0); }
+        dT.done(); dC.done(); dT.m.visible = dC.m.visible = da > 0.01; dT.m.material.opacity = dC.m.material.opacity = da;
+        var cf = vis(9, 11) * ph(9.2, 9.6); for (q = 0; q < 5; q++) { var pp = 3 + q * 4 / 4; dCF.set(q, PX(3 + q), DY(DT[3] + (DC[3 + q] - DC[3])), 0.02); } dCF.done(); dCF.m.visible = cf > 0.01;
+        setPost(startL, (PX(3) + PX(4)) / 2, 0, 4.6 * da); var dd = vis(9, 10) * ph(9.6, 9.9); setPost(didB, PX(7) + 0.4, 0.02, DID * 0.45 * dd, DY(DT[3] + (DC[7] - DC[3])));
+        // RD
+        var ra = vis(11, 13);
+        RS.forEach(function (m, k) { m.visible = ra * ph(11.15 + k * 0.004, 11.2 + k * 0.004) > 0.01; m.position.set(RXW(RX[k]), H(RY[k]) - 0.6, 0); m.material.opacity = (step === 12 && Math.abs(RX[k] - 60) > BW) ? 0.25 : 1; });
+        var rl = ra * ph(11.6, 11.9); setSeg(rdL, RXW(60 - BW), H(RL[0] - RL[1] * BW) - 0.6, RXW(60), H(RL[0]) - 0.6, 0.02); setSeg(rdH, RXW(60), H(RH[0]) - 0.6, RXW(60 + BW), H(RH[0] + RH[1] * BW) - 0.6, 0.02); rdL.visible = rdH.visible = rl > 0.01;
+        setPost(rdCut, RXW(60), 0, 5 * ra); setPost(rdJ, RXW(60) + 0.08, 0.04, H(JUMP) * ra * ph(11.9, 12.0), H(RL[0]) - 0.6);
+        rdBand.set(0, RXW(60 - BW), 0.01, -0.3, RXW(60 - BW), 0.01, 0.3); rdBand.set(1, RXW(60 + BW), 0.01, -0.3, RXW(60 + BW), 0.01, 0.3); rdBand.done(); rdBand.m.visible = step === 12; rdBand.m.material.opacity = 0.15 * vis(12, 13);
+        // dose-response
+        var dra = vis(13, 14); DS.forEach(function (m, k) { m.visible = dra * ph(13.15 + k * 0.006, 13.2 + k * 0.006) > 0.01; m.position.set(DXW(DH[k]), 1.2 + DG[k] * 0.55, 0); });
+        var drl = dra * ph(13.5, 13.8); setSeg(drL, DXW(0), 1.2 + DR[0] * 0.55, DXW(40 * drl), 1.2 + (DR[0] + DR[1] * 40 * drl) * 0.55, 0.02); drL.visible = drl > 0.01;
+        // KM
+        var ka = vis(14, 16);
+        function setKM(pl, k) { k.pts.forEach(function (pt, j) { pl.set(j, KXW(pt[0]), KYW(pt[1]), 0); }); pl.done(Math.max(2, Math.round(k.pts.length * cl(ph(14.15, 14.9) * 1.1)))); pl.m.visible = ka > 0.01; pl.m.material.opacity = ka; }
+        setKM(kmT, KMT); setKM(kmC, KMC);
+        KMT.cens.concat(KMC.cens).forEach(function (c, j) { setPost(cm[j], KXW(c[0]), 0, 0.3 * ka * ph(14.9, 15.0), KYW(c[1]) - 0.15); });
+        setBar(kHalf, KXW(0), KYW(0.5), 0.01, (KXW(12) - KXW(0)) * vis(15, 16) * ph(15.2, 15.5));
+        // labels
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, z, t, a, c) { lb.p.set(x, y, z); lb.a = a; setText(lb, t); lb.el.style.color = c || ''; };
+        if (step === 0) L(lbA, 5.5, 1.3, 1.2, 'brighter = higher ability (we cannot see this in real data)', ph(0.6, 0.75));
+        if (step === 4) L(lbA, 5.5, H(E.mt) + 0.7, 2.0, 'effect ' + f2(ER.d) + ' (95% CI ' + f1(ER.lo) + ' to ' + f1(ER.hi) + ')', ph(4.5, 4.65), '#5cff9d');
+        if (step === 6) L(lbA, 5.5, H(ES.mt) + 0.7, 2.0, 'naive gap ' + f2(ES.d) + ' — but the true effect is ' + TRUE, ph(6.5, 6.65), '#ff8fae');
+        if (step === 7) L(lbA, AX(1.2), H(ADJ[0] + ADJ[1] + ADJ[2] * 2.2) + 0.5, 0, 'same ability, gap = ' + f2(ADJ[1]), ph(7.9, 8.0), '#5cff9d');
+        if (step === 9) L(lbA, PX(7) + 0.5, DY(DT[7]) + 0.6, 0, 'DiD = ' + f2(DID), ph(9.9, 10.0), '#5cff9d');
+        if (step === 10) L(lbA, PX(1.8), DY(DT[0]) + 0.8, 0, 'before treatment: the lines run parallel', ph(10.2, 10.35));
+        if (step === 11 || step === 12) L(lbA, RXW(60) + 0.3, H(RH[0]) + 0.1, 0, 'jump at 60 = ' + f2(JUMP), ph(11.9, 12.0), '#5cff9d');
+        if (step === 13) L(lbA, DXW(30), 1.2 + (DR[0] + DR[1] * 40) * 0.55 + 0.5, 0, '+' + f2(DR[1]) + ' per hour', ph(13.8, 13.9), '#5cff9d');
+        if (step === 14 || step === 15) { L(lbA, KXW(5.5), KYW(KMC.pts[Math.min(KMC.pts.length - 1, 30)][1]) + 0.6, 0, 'control', ph(14.9, 15), '#4dd2ff'); L(lbB, KXW(3), KYW(0.2), 0, 'treated', ph(14.9, 15), '#ffb454'); }
+        if (step === 15) L(lbC, KXW(10.5), KYW(0.5) + 0.3, 0, '50% line', ph(15.5, 15.6));
+        buildTable();
+        var hl = []; if (step === 2) hl = [0]; if (step === 4) hl = [2, 4]; if (step === 5) hl = [0]; if (step === 6) hl = [1, 4]; if (step === 7) hl = [2]; if (step === 9 || step === 10) hl = [2]; if (step === 11) hl = [3]; if (step === 15) hl = [3, 4];
+        trs.forEach(function (tr, k) { var c = hl.indexOf(k) >= 0 ? 'hl' : ''; if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step === 2) st = 'mean ability: treated <b>' + f2(BALR[0]) + '</b> · control <b>' + f2(BALR[1]) + '</b>';
+        else if (step === 4) st = 'effect <b>' + f2(ER.d) + '</b> · 95% CI ' + f2(ER.lo) + ' to ' + f2(ER.hi);
+        else if (step === 5) st = 'mean ability: treated <b>' + f2(BALS[0]) + '</b> · control <b>' + f2(BALS[1]) + '</b>';
+        else if (step === 6) st = 'naive <b>' + f2(ES.d) + '</b> · true ' + TRUE;
+        else if (step === 7) st = 'adjusted <b>' + f2(ADJ[1]) + '</b> · true ' + TRUE;
+        else if (step >= 9 && step <= 10) st = '(' + f1(postT) + ' − ' + f1(preT) + ') − (' + f1(postC) + ' − ' + f1(preC) + ') = <b>' + f2(DID) + '</b>';
+        else if (step >= 11 && step <= 12) st = 'jump at cutoff = <b>' + f2(JUMP) + '</b>';
+        else if (step === 13) st = 'slope <b>' + f2(DR[1]) + '</b> per hour';
+        else if (step >= 14 && step <= 15) st = 'median months: treated <b>' + (KMT.med === null ? '> 12' : f1(KMT.med)) + '</b> · control <b>' + (KMC.med === null ? '> 12' : f1(KMC.med)) + '</b>';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var PPL = [[5.6, 7.5, 11], [5.6, 0.8, -0.6], -1.6], OUT = [[5.6, 5.5, 12.5], [5.6, 1.8, -0.5], -1.6], WALL = [[5.6, 3.3, 15], [5.6, 3.0, 0], -2.0];
+    var CAM = [PPL, PPL, PPL, OUT, OUT, PPL, OUT, WALL, WALL, WALL, WALL, WALL, WALL, WALL, WALL, WALL, OUT];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fE", "fT", "fC"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Economics Examples in 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    #tbl table.pt td, #tbl table.pt th { text-align: left; white-space: normal; }
+    @media (min-width: 761px) { #tbl { width: min(380px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Y equals C plus I plus G plus NX">
+            <span class="p" id="fY">Y</span><span class="sym">=</span><span class="p" id="fC">C</span> <span class="sym">+</span> <span class="p" id="fI">I</span> <span class="sym">+</span> <span class="p" id="fG">G</span> <span class="sym">+</span> <span class="p" id="fN">NX</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- economics examples (simulated data) ----------
+    var STEPS = [
+        {
+                "t": "GDP by expenditure",
+                "n": "Each tower is one year of GDP, built from who buys the output: households (C), firms (I), government (G) and the rest of the world (NX = exports − imports). Data are simulated.",
+                "s": "Y = C + I + G + NX",
+                "on": [
+                        "fY",
+                        "fC",
+                        "fI",
+                        "fG",
+                        "fN"
+                ]
+        },
+        {
+                "t": "What the economy is made of",
+                "n": "Rescale the last year to 100%. Consumption is the largest share, as in most economies.",
+                "s": "",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Growth and what drives it",
+                "n": "Growth is the % change in GDP. Split it into contributions: each component's change as a share of last year's GDP. In the 2020 recession, investment and consumption pulled growth below zero.",
+                "s": "growth = ΔY ÷ Y₋₁ × 100",
+                "on": [
+                        "fY"
+                ]
+        },
+        {
+                "t": "Consumption function",
+                "n": "Each dot is a household: income across, spending up. A regression line fits C = a + bY.",
+                "s": "C = a + bY",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "The marginal propensity to consume",
+                "n": "The slope b is the MPC: out of each extra unit of income, households spend b and save the rest.",
+                "s": "MPC = ΔC ÷ ΔY",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Saving and break-even",
+                "n": "Where the line crosses the 45° line (C = Y), households spend all their income. Below that income they dissave; above it they save.",
+                "s": "break-even Y = a ÷ (1 − b)",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "The multiplier",
+                "n": "Extra government spending becomes someone's income, who spends MPC of it, which becomes someone else's income, and so on. The rounds add up to 1 ÷ (1 − MPC) times the first injection.",
+                "s": "multiplier = 1 ÷ (1 − MPC)",
+                "on": [
+                        "fG",
+                        "fC"
+                ]
+        },
+        {
+                "t": "Investment function",
+                "n": "Firms invest less when borrowing costs more. The fitted slope says how much investment falls for each extra point of interest rate: the channel of monetary policy.",
+                "s": "I = I₀ − d·r",
+                "on": [
+                        "fI"
+                ]
+        },
+        {
+                "t": "Government budget",
+                "n": "Spending G is set by policy; tax revenue T = tY rises with income. At low income there is a deficit, at high income a surplus.",
+                "s": "balanced at Y = G ÷ t",
+                "on": [
+                        "fG"
+                ]
+        },
+        {
+                "t": "Rich and poor",
+                "n": "Line up 100 households from poorest to richest, each tower its income. A few at the right earn far more than the rest.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "The Lorenz curve",
+                "n": "Plot the cumulative share of income against the cumulative share of households. Perfect equality is the diagonal. The further the curve sags below it, the more unequal.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "The Gini coefficient",
+                "n": "Gini = the area between the diagonal and the Lorenz curve (A), divided by the whole triangle under the diagonal (A + B). 0 is perfect equality, 1 is one household holding everything.",
+                "s": "Gini = A ÷ (A + B)",
+                "on": []
+        },
+        {
+                "t": "Population pyramid",
+                "n": "Bars show how many men (left) and women (right) are in each age group. A wide base means many children: a young, growing population.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Reading the pyramid",
+                "n": "Children and the elderly depend on the working-age population. The dependency ratio counts them per 100 people aged 15–64, which drives future needs for schools, jobs and pensions.",
+                "s": "dependency = (0–14 + 65+) ÷ (15–64) × 100",
+                "on": []
+        },
+        {
+                "t": "Demand and supply",
+                "n": "Demand slopes down: higher price, less bought. Supply slopes up: higher price, more offered. They cross at the equilibrium price and quantity.",
+                "s": "Qd = Qs",
+                "on": []
+        },
+        {
+                "t": "A shift in demand",
+                "n": "Incomes rise, so buyers want more at every price: the demand line shifts right. The new equilibrium has a higher price and a higher quantity.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "Economics with statistics tools",
+                "n": "Shares and growth rates describe GDP. Regression slopes give the MPC and the interest-rate effect. Curves and ratios measure inequality and population. Two lines solve a market.",
+                "s": "",
+                "on": [
+                        "fY",
+                        "fC",
+                        "fI",
+                        "fG",
+                        "fN"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); }, pc = function (v) { return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1) + '%'; };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function fit(x, y) { var mx = mean(x), my = mean(y), sxy = 0, sxx = 0; x.forEach(function (v, i) { sxy += (v - mx) * (y[i] - my); sxx += (v - mx) * (v - mx); }); var b = sxy / sxx; return [my - b * mx, b]; }
+    var r0 = rng(61), gauss = function () { return Math.sqrt(-2 * Math.log(r0() + 1e-9)) * Math.cos(2 * Math.PI * r0()); };
+    // ----- GDP by expenditure, 2015–2024 -----
+    var YRS = [], GC = [], GI = [], GG = [], GN = [], GY = [];
+    for (var t0 = 0; t0 < 10; t0++) { var rec = t0 === 5 ? 0.93 : 1, g = Math.pow(1.045, t0) * rec * (t0 > 5 ? 0.97 : 1); YRS.push(2015 + t0);
+        GC.push(62 * g * (1 + 0.01 * gauss())); GI.push(20 * g * (t0 === 5 ? 0.85 : 1) * (1 + 0.02 * gauss())); GG.push(16 * Math.pow(1.04, t0) * (t0 === 5 ? 1.08 : 1)); GN.push(2 + 0.25 * t0 + 0.4 * gauss()); }
+    GC.forEach(function (c, t) { GY.push(c + GI[t] + GG[t] + GN[t]); });
+    var GR = GY.map(function (y, t) { return t ? 100 * (y / GY[t - 1] - 1) : 0; }), CONT = [GC, GI, GG, GN].map(function (s) { return s.map(function (v, t) { return t ? 100 * (v - s[t - 1]) / GY[t - 1] : 0; }); });
+    // ----- consumption function -----
+    var HY = [], HC = []; for (var k0 = 0; k0 < 40; k0++) { var yy = 10 + 90 * r0(); HY.push(yy); HC.push(8 + 0.75 * yy + 3 * gauss()); }
+    var CF = fit(HY, HC), MPC = CF[1], BE = CF[0] / (1 - MPC), MULT = 1 / (1 - MPC);
+    // ----- investment function -----
+    var IR = [], II = []; for (k0 = 0; k0 < 30; k0++) { var rr = 1 + 9 * r0(); IR.push(rr); II.push(30 - 2.2 * rr + 1.6 * gauss()); } var IF = fit(IR, II);
+    // ----- government -----
+    var G0 = 40, TAX = 0.25, BAL = G0 / TAX;
+    // ----- inequality -----
+    var INC = []; for (k0 = 0; k0 < 100; k0++) INC.push(Math.exp(1.0 * gauss() * 0.75 + 3)); INC.sort(function (a, b) { return a - b; });
+    var TOT = INC.reduce(function (p, c) { return p + c; }, 0), LZ = [0], cum = 0; INC.forEach(function (v) { cum += v; LZ.push(cum / TOT); });
+    var GINI = 0; for (k0 = 1; k0 <= 100; k0++) GINI += (LZ[k0] + LZ[k0 - 1]) / 100; GINI = 1 - GINI;
+    var TOP10 = 1 - LZ[90], BOT40 = LZ[40];
+    // ----- population pyramid (thousands, simulated young population) -----
+    var AGES = ['0–4', '5–9', '10–14', '15–19', '20–24', '25–29', '30–34', '35–39', '40–44', '45–49', '50–54', '55–59', '60–64', '65–69', '70–74', '75+'];
+    var MALE = [], FEM = []; for (k0 = 0; k0 < 16; k0++) { var base = 900 * Math.exp(-0.045 * k0 * 5 / 1.6) * (k0 === 3 || k0 === 4 ? 1.05 : 1); MALE.push(Math.round(base * (1 - 0.01 * k0))); FEM.push(Math.round(base * (1 + 0.006 * k0))); }
+    var sumR = function (a, b) { var s = 0; for (var k = a; k <= b; k++) s += MALE[k] + FEM[k]; return s; }, YOUNG = sumR(0, 2), WORK = sumR(3, 12), OLD = sumR(13, 15), DEPR = 100 * (YOUNG + OLD) / WORK;
+    // ----- demand and supply -----
+    var D1 = [100, 8], D2 = [120, 8], SU = [-20, 12], eq = function (d) { var p = (d[0] - SU[0]) / (d[1] + SU[1]); return [p, d[0] - d[1] * p]; }, E1 = eq(D1), E2 = eq(D2);
+
+    // ---------- world ----------
+    grid.position.set(5.5, -0.03, -1);
+    var axX = bar('#3c6d80', 0.5), axY = post('#3c6d80'), tks = [], ytk = []; for (k0 = 0; k0 < 11; k0++) tks.push(label('', 0, -0.35, 0.2, 'tick')); for (k0 = 0; k0 < 6; k0++) ytk.push(label('', -0.45, 0, 0, 'tick'));
+    var lbX = label('', 11.3, 0, 0, 'key', true), lbY = label('', 0, 5.9, 0, 'key');
+    var CC = ['#4dd2ff', '#ffb454', '#5cff9d', '#ff5c8a'], CN = ['C consumption', 'I investment', 'G government', 'NX net exports'];
+    var GB = []; for (t0 = 0; t0 < 10; t0++) { GB.push([0, 1, 2, 3].map(function (c) { return box(CC[c], 0.85, true); })); }
+    var GRB = []; for (t0 = 0; t0 < 10; t0++) GRB.push([0, 1, 2, 3].map(function (c) { return box(CC[c], 0.85, true); }));
+    var lbComp = CN.map(function (n, c) { var l = label(n, 0, 0, 0, 'key', true); l.el.style.color = CC[c]; return l; }), lbYr = YRS.map(function (y) { return label(String(y), 0, 0, 0, 'tick'); }), lbGr = YRS.map(function () { return label('', 0, 0, 0, 'eq'); });
+    var sph = new THREE.SphereGeometry(0.12, 12, 8), pool = []; for (k0 = 0; k0 < 40; k0++) { var m = new THREE.Mesh(sph, mat('#4dd2ff')); m.visible = false; scene.add(m); pool.push(m); }
+    var L1 = bar('#5cff9d', 1.3), L2 = bar('#ffffff', 1.0), L3 = bar('#ffb454', 1.3), L4 = bar('#ff5c8a', 1.3), runB = bar('#ffffff', 1.4), riseP = post('#ffffff', 1.6);
+    var mult = []; for (k0 = 0; k0 < 10; k0++) mult.push(box('#5cff9d', 0.85, true)); var multL = polyline(10, '#ffb454');
+    var shade1 = strip(41, '#ff5c8a', 0), shade2 = strip(41, '#5cff9d', 0);
+    var pen = []; for (k0 = 0; k0 < 100; k0++) pen.push(box('#b388ff', 0.85, false)); var lor = polyline(101, '#ffb454'), lorA = strip(101, '#ffb454', 0);
+    var PYR = [], PYF = []; for (k0 = 0; k0 < 16; k0++) { PYR.push(box('#4dd2ff', 0.85, true)); PYF.push(box('#ff8fd0', 0.85, true)); } var lbAge = AGES.map(function (a) { return label(a, 0, 0, 0, 'tick'); });
+    var eqD = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 10), mat('#ffffff')); scene.add(eqD); var eqD2 = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 10), mat('#5cff9d')); scene.add(eqD2);
+    var eqH = bar('#ffffff', 0.7), eqV = post('#ffffff', 1.0), eqH2 = bar('#5cff9d', 0.7), eqV2 = post('#5cff9d', 1.0);
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''), lbC = label('', 0, 0, 0, ''); lbA.el.style.fontSize = '16px';
+    var GX = function (t) { return 0.7 + t * 1.05; }, GH = 0.032;
+
+    // ---------- table ----------
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table class="pt">' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 1 ? 0 : step <= 2 ? 1 : step <= 5 ? 2 : step === 6 ? 2 : step === 7 ? 3 : step === 8 ? 4 : step <= 11 ? 5 : step <= 13 ? 6 : step <= 15 ? 7 : 8; if (k === tKey) return; tKey = k;
+        if (k === 0) card('GDP by expenditure (billions, simulated)', ['year', 'C', 'I', 'G', 'NX', 'Y'], YRS.map(function (y, t) { return [String(y), f1(GC[t]), f1(GI[t]), f1(GG[t]), f1(GN[t]), '<b>' + f1(GY[t]) + '</b>']; }));
+        else if (k === 1) card('Growth and contributions (percentage points)', ['year', 'growth', 'C', 'I', 'G', 'NX'], YRS.slice(1).map(function (y, i) { var t = i + 1; return [String(y), '<b>' + pc(GR[t]) + '</b>', f1(CONT[0][t]), f1(CONT[1][t]), f1(CONT[2][t]), f1(CONT[3][t])]; }));
+        else if (k === 2) card('Consumption function', ['', 'value'], [['C = a + bY', 'C = ' + f1(CF[0]) + ' + ' + f2(MPC) + 'Y'], ['MPC (slope b)', f2(MPC)], ['MPS = 1 − MPC', f2(1 - MPC)], ['break-even income a ÷ (1 − b)', f1(BE)], ['multiplier 1 ÷ (1 − MPC)', f2(MULT)], ['10 more G → total Y', '+' + f1(10 * MULT)]]);
+        else if (k === 3) card('Investment function', ['', 'value'], [['I = I₀ − d·r', 'I = ' + f1(IF[0]) + ' − ' + f2(-IF[1]) + 'r'], ['d: fall in I per 1 point of r', f2(-IF[1])], ['I at r = 3%', f1(IF[0] + IF[1] * 3)], ['I at r = 6%', f1(IF[0] + IF[1] * 6)]]);
+        else if (k === 4) card('Government budget', ['', 'value'], [['spending G', String(G0) + ' (fixed by policy)'], ['tax T = tY', 't = ' + TAX], ['balanced at Y = G ÷ t', String(BAL)], ['at Y = 100: T − G', String(TAX * 100 - G0) + ' (deficit)'], ['at Y = 200: T − G', '+' + String(TAX * 200 - G0) + ' (surplus)']]);
+        else if (k === 5) card('Inequality: 100 households', ['', 'value'], [['poorest 40% hold', (100 * BOT40).toFixed(1) + '% of income'], ['richest 10% hold', (100 * TOP10).toFixed(1) + '% of income'], ['Gini = A ÷ (A + B)', '<b>' + f2(GINI) + '</b>'], ['Gini 0', 'everyone equal'], ['Gini 1', 'one household has everything']]);
+        else if (k === 6) card('Population (thousands, simulated)', ['', 'value'], [['aged 0–14', String(YOUNG)], ['aged 15–64 (working age)', String(WORK)], ['aged 65+', String(OLD)], ['dependency ratio', '<b>' + DEPR.toFixed(1) + '</b> per 100 of working age']]);
+        else if (k === 7) card('Demand and supply', ['', 'before', 'after demand rises'], [['demand Qd', '100 − 8P', '120 − 8P'], ['supply Qs', '−20 + 12P', '−20 + 12P'], ['equilibrium price P*', f1(E1[0]), f1(E2[0])], ['equilibrium quantity Q*', f1(E1[1]), f1(E2[1])]]);
+        else card('Economics with statistics tools', ['topic', 'tool', 'read'], [['GDP and growth', 'shares, % change', 'what drives the change'], ['consumption', 'regression slope', 'MPC and the multiplier'], ['investment', 'regression slope', 'effect of the interest rate'], ['budget', 'two lines', 'deficit or surplus by income'], ['inequality', 'Lorenz curve, Gini', 'how unequal'], ['population', 'pyramid, ratios', 'future needs'], ['markets', 'two lines crossing', 'price and quantity']]);
+    }
+    function axes(a, xl, yl, xt, yt) { setBar(axX, 0, 0, 0, 11); setPost(axY, 0, 0, 5.8); axX.visible = axY.visible = a > 0.01; lbX.a = lbY.a = a; setText(lbX, xl); setText(lbY, yl);
+        tks.forEach(function (l, k) { if (xt[k]) { l.p.x = xt[k][1]; setText(l, String(xt[k][0])); l.a = 0.8 * a; } else l.a = 0; }); ytk.forEach(function (l, k) { if (yt[k]) { l.p.y = yt[k][1]; setText(l, String(yt[k][0])); l.a = 0.8 * a; } else l.a = 0; }); }
+    function seg(m, x1, y1, x2, y2, a) { setSeg(m, x1, y1, x2, y2, 0.02); m.visible = a > 0.01; m.material.opacity = a; }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        pool.forEach(function (m) { m.visible = false; }); [L1, L2, L3, L4, runB, riseP, eqH, eqV, eqH2, eqV2].forEach(function (m) { m.visible = false; }); eqD.visible = eqD2.visible = false;
+        lbA.a = lbB.a = lbC.a = 0;
+        var L = function (lb, x, y, t, a, c) { lb.p.set(x, y, 0); lb.a = a; setText(lb, t); lb.el.style.color = c || ''; };
+        // ----- GDP stacks (steps 0–1) -----
+        var ga = vis(0, 2) + ph(16.1, 16.5), sh = vis(1, 2) * ph(1.15, 1.6);
+        for (var t = 0; t < 10; t++) { var y0 = 0, parts = [GC[t], GI[t], GG[t], GN[t]];
+            parts.forEach(function (v, c) { var b = GB[t][c], a = ga * ph(0.1 + t * 0.05 + c * 0.1, 0.25 + t * 0.05 + c * 0.1); var hh = t === 9 ? lerp(v * GH, 4.5 * v / GY[9], sh) : v * GH;
+                b.visible = a > 0.01; b.material.opacity = 0.85 * a; b.children[0].material.opacity = Math.min(0.5, a); b.scale.set(0.8, Math.max(hh * a, 0.01), 0.8); b.position.set(GX(t) - 0.4, y0, -0.4); y0 += hh * a; });
+            lbYr[t].p.set(GX(t), -0.35, 0.6); lbYr[t].a = ga * 0.85 + vis(2, 3) * 0.85; }
+        lbComp.forEach(function (l, c) { var below = 0; for (var q = 0; q < c; q++) below += [GC[9], GI[9], GG[9], GN[9]][q]; var v = [GC[9], GI[9], GG[9], GN[9]][c]; l.p.set(GX(9) + 0.6, lerp((below + v / 2) * GH, 4.5 * (below + v / 2) / GY[9], sh), 0); l.a = ga; setText(l, CN[c] + (sh > 0.5 ? ' ' + Math.round(100 * v / GY[9]) + '%' : '')); });
+        if (step === 0) L(lbA, GX(4.5), GY[9] * GH + 0.9, 'Y = C + I + G + NX', ph(0.9, 1.0));
+        if (step === 1) L(lbA, GX(4.5), 5.3, '2024 as 100%: consumption is the largest part', ph(1.6, 1.75));
+        // ----- growth contributions (step 2) -----
+        var gra = vis(2, 3), Z0 = 2.4;
+        for (t = 1; t < 10; t++) { var up = Z0, dn = Z0; for (var c = 0; c < 4; c++) { var v = CONT[c][t] * 0.32 * gra * ph(2.1 + t * 0.04, 2.3 + t * 0.04), b = GRB[t][c]; b.visible = gra > 0.01 && Math.abs(v) > 0.005; b.material.opacity = 0.85; b.children[0].material.opacity = 0.5; b.scale.set(0.8, Math.max(Math.abs(v), 0.01), 0.8);
+            if (v >= 0) { b.position.set(GX(t) - 0.4, up, -0.4); up += v; } else { dn += v; b.position.set(GX(t) - 0.4, dn, -0.4); } }
+            lbGr[t].p.set(GX(t), Math.max(up, Z0) + 0.35, 0); lbGr[t].a = gra * ph(2.5, 2.6); setText(lbGr[t], pc(GR[t])); }
+        for (c = 0; c < 4; c++) GRB[0][c].visible = false;
+        if (gra > 0) { setBar(L2, GX(0) - 0.5, Z0, 0, GX(9) - GX(0) + 1); L2.visible = true; L2.material.opacity = gra; L(lbA, GX(5), Z0 - 1.3, '2020: a recession, led by investment and consumption', ph(2.6, 2.75), '#ff8fae'); }
+        // ----- consumption function (steps 3–6) -----
+        var X = function (y) { return y * 0.105; }, Yc = function (c) { return c * 0.052; };
+        if (step >= 3 && step <= 5) { var ca = ph(3.1, 3.4) * (step === 5 ? 1 : 1); axes(1, 'income Y', 'consumption C', [0, 20, 40, 60, 80, 100].map(function (v) { return [v, X(v)]; }), [0, 20, 40, 60, 80, 100].map(function (v) { return [v, Yc(v)]; }));
+            for (i = 0; i < 40; i++) { var m = pool[i], a = step === 3 ? ph(3.1 + i * 0.01, 3.15 + i * 0.01) : 1; m.visible = a > 0.01; m.position.set(X(HY[i]), Yc(HC[i]), 0); m.material.color.set('#4dd2ff'); }
+            var la = step === 3 ? ph(3.5, 3.8) : 1; seg(L1, X(0), Yc(CF[0]), X(100), Yc(CF[0] + MPC * 100), la);
+            if (step === 3) L(lbA, X(80), Yc(CF[0] + MPC * 100) + 0.5, 'C = ' + f1(CF[0]) + ' + ' + f2(MPC) + 'Y', ph(3.8, 3.9), '#5cff9d');
+            if (step === 4) { var sa = ph(4.1, 4.4); setBar(runB, X(60), Yc(CF[0] + MPC * 60), 0.03, X(10) * sa); runB.visible = sa > 0.01; setPost(riseP, X(70), 0.03, Yc(MPC * 10) * cl(sa * 2 - 1), Yc(CF[0] + MPC * 60)); riseP.visible = sa > 0.5;
+                L(lbA, X(74) + 0.6, Yc(CF[0] + MPC * 65), '+10 income → +' + f1(MPC * 10) + ' spending: MPC = ' + f2(MPC), ph(4.4, 4.5), '#ffffff'); }
+            if (step === 5) { seg(L3, X(0), Yc(0), X(100), Yc(100), ph(5.1, 5.4)); var bx = X(BE); setPost(eqV, bx, 0.03, Yc(BE)); eqV.visible = ph(5.4, 5.5) > 0;
+                L(lbA, X(88), Yc(100) + 0.4, 'C = Y (45°)', ph(5.4, 5.5), '#ffb454'); L(lbB, bx, Yc(BE) + 0.6, 'break-even Y = ' + f1(BE), ph(5.5, 5.6)); L(lbC, X(85), Yc(62), 'saving = Y − C', ph(5.6, 5.7), '#5cff9d'); } }
+        // multiplier (step 6)
+        var ma = vis(6, 7), tot = 0; for (k = 0; k < 10; k++) { var amt = 10 * Math.pow(MPC, k), b2 = mult[k], a2 = ma * ph(6.1 + k * 0.08, 6.25 + k * 0.08); b2.visible = a2 > 0.01; b2.material.opacity = 0.85 * a2; b2.children[0].material.opacity = 0.5 * a2; b2.scale.set(0.7, Math.max(amt * 0.4 * a2, 0.01), 0.7); b2.position.set(0.8 + k * 1.0 - 0.35, 0, -0.35); tot += amt; multL.set(k, 0.8 + k * 1.0, tot * 0.12, 0.3); }
+        multL.done(Math.max(2, Math.round(10 * ph(6.2, 7.0)))); multL.m.visible = ma > 0.01;
+        if (step === 6) { L(lbA, 6, 4.9, 'rounds add up to 10 × ' + f2(MULT) + ' = ' + f1(10 * MULT), ph(6.9, 7.0), '#ffb454'); L(lbB, 0.8, 4.4, 'round 1: +10', ph(6.2, 6.3), '#5cff9d'); }
+        // investment (step 7)
+        if (step === 7) { var Xr = function (r) { return r * 1.0; }, Yi = function (v) { return v * 0.17; }; axes(1, 'interest rate r (%)', 'investment I', [0, 2, 4, 6, 8, 10].map(function (v) { return [v, Xr(v)]; }), [0, 10, 20, 30].map(function (v) { return [v, Yi(v)]; }));
+            for (i = 0; i < 30; i++) { pool[i].visible = ph(7.1 + i * 0.01, 7.15 + i * 0.01) > 0; pool[i].position.set(Xr(IR[i]), Yi(II[i]), 0); pool[i].material.color.set('#ffb454'); }
+            seg(L3, Xr(0.5), Yi(IF[0] + IF[1] * 0.5), Xr(10.5), Yi(IF[0] + IF[1] * 10.5), ph(7.5, 7.8)); L(lbA, Xr(7), Yi(IF[0] + IF[1] * 3) + 0.6, 'higher rates → less investment: slope ' + f2(IF[1]), ph(7.8, 7.9), '#ffb454'); }
+        // government (step 8)
+        if (step === 8) { var Xg = function (y) { return y * 0.045; }, Yg = function (v) { return v * 0.07; }; axes(1, 'national income Y', 'G and T', [0, 50, 100, 150, 200, 250].map(function (v) { return [v, Xg(v)]; }), [0, 20, 40, 60].map(function (v) { return [v, Yg(v)]; }));
+            var a8 = ph(8.1, 8.4); seg(L4, Xg(0), Yg(G0), Xg(240), Yg(G0), a8); seg(L1, Xg(0), Yg(0), Xg(240), Yg(TAX * 240), ph(8.3, 8.6));
+            var s8 = ph(8.6, 8.9); for (k = 0; k <= 40; k++) { var ya = BAL * k / 40, yb = BAL + (240 - BAL) * k / 40; shade1.set(k, Xg(ya), Yg(G0), -0.01, Xg(ya), Yg(TAX * ya), -0.01); shade2.set(k, Xg(yb), Yg(TAX * yb), -0.01, Xg(yb), Yg(G0), -0.01); }
+            shade1.done(); shade2.done(); shade1.m.material.opacity = shade2.m.material.opacity = 0.25 * s8; shade1.m.visible = shade2.m.visible = s8 > 0.01;
+            setPost(eqV, Xg(BAL), 0.03, Yg(G0)); eqV.visible = s8 > 0.5; L(lbA, Xg(60), Yg(G0) + 0.5, 'deficit: G > T', s8, '#ff8fae'); L(lbB, Xg(215), Yg(TAX * 215) + 0.5, 'surplus: T > G', s8, '#5cff9d'); L(lbC, Xg(BAL), Yg(G0) + 1.1, 'balanced at Y = ' + BAL, s8); }
+        else { shade1.m.visible = shade2.m.visible = false; }
+        // inequality (steps 9–11)
+        var pa = vis(9, 10), la9 = vis(10, 12);
+        pen.forEach(function (b, k) { var a = pa * ph(9.1 + k * 0.004, 9.15 + k * 0.004); b.visible = a > 0.01; b.material.opacity = 0.85 * a; b.scale.set(0.09, Math.max(Math.min(INC[k] * 0.025, 5.6), 0.01), 0.4); b.position.set(0.3 + k * 0.104, 0, -0.2); });
+        if (step === 9) { L(lbA, 3.5, 4.0, '100 households, poorest to richest', ph(9.5, 9.6)); L(lbB, 10.2, Math.min(INC[99] * 0.025, 5.6) + 0.4, 'top 10% hold ' + Math.round(100 * TOP10) + '%', ph(9.6, 9.7), '#c9aaff'); }
+        var Xp = function (p) { return 0.5 + p * 9.6; }, Yp = function (s) { return s * 5.2; };
+        for (k = 0; k <= 100; k++) { lor.set(k, Xp(k / 100), Yp(LZ[k]), 0.02); lorA.set(k, Xp(k / 100), Yp(k / 100), 0, Xp(k / 100), Yp(LZ[k]), 0); }
+        lor.done(Math.max(2, Math.round(101 * cl(ph(10.1, 10.6) * 1.1)))); lor.m.visible = la9 > 0.01; lorA.done(); lorA.m.visible = step === 11; lorA.m.material.opacity = 0.3 * ph(11.1, 11.4);
+        if (la9 > 0) { seg(L2, Xp(0), Yp(0), Xp(1), Yp(1), la9); axes(la9, 'share of households (poorest first)', 'share of income', [0, 0.2, 0.4, 0.6, 0.8, 1].map(function (p) { return [Math.round(p * 100) + '%', Xp(p)]; }), [0, 0.2, 0.4, 0.6, 0.8, 1].map(function (p) { return [Math.round(p * 100) + '%', Yp(p)]; }));
+            if (step === 10) { L(lbA, Xp(0.55), Yp(0.68), 'equality line', ph(10.2, 10.3)); L(lbB, Xp(0.7), Yp(LZ[70]) - 0.4, 'Lorenz curve: poorest 40% hold ' + Math.round(100 * BOT40) + '%', ph(10.6, 10.7), '#ffb454'); }
+            if (step === 11) L(lbA, Xp(0.55), Yp(0.38), 'A = gap · Gini = A ÷ (A + B) = ' + f2(GINI), ph(11.4, 11.55), '#ffb454'); }
+        // pyramid (steps 12–13)
+        var pya = vis(12, 14), CXP = 5.6, PW = 0.0042;
+        for (k = 0; k < 16; k++) { var a3 = pya * ph(12.1 + k * 0.03, 12.25 + k * 0.03), yk = 0.15 + k * 0.33, m1 = PYR[k], f = PYF[k];
+            m1.visible = f.visible = a3 > 0.01; m1.material.opacity = f.material.opacity = 0.85 * a3; m1.scale.set(Math.max(MALE[k] * PW * a3, 0.01), 0.28, 0.6); m1.position.set(CXP - 0.35 - MALE[k] * PW * a3, yk, -0.3); f.scale.set(Math.max(FEM[k] * PW * a3, 0.01), 0.28, 0.6); f.position.set(CXP + 0.35, yk, -0.3);
+            var hl13 = step === 13 && (k <= 2 || k >= 13); m1.material.color.set(hl13 ? '#ffb454' : '#4dd2ff'); f.material.color.set(hl13 ? '#ffb454' : '#ff8fd0');
+            lbAge[k].p.set(CXP, yk + 0.14, 0); lbAge[k].a = 0.85 * a3; }
+        if (step === 12) { L(lbA, CXP - 2.6, 5.9, 'male', ph(12.5, 12.6), '#4dd2ff'); L(lbB, CXP + 2.6, 5.9, 'female', ph(12.5, 12.6), '#ff8fd0'); L(lbC, CXP + 4.4, 1.0, 'wide base: a young population', ph(12.7, 12.8)); }
+        if (step === 13) L(lbA, CXP + 3.4, 3.4, 'dependents (amber): ' + DEPR.toFixed(0) + ' per 100 workers', ph(13.3, 13.45), '#ffb454');
+        // demand and supply (steps 14–15)
+        if (step >= 14 && step <= 15) { var Xq = function (q) { return q * 0.085; }, Yq = function (p) { return p * 0.45; }; axes(1, 'quantity Q', 'price P', [0, 20, 40, 60, 80, 100, 120].map(function (v) { return [v, Xq(v)]; }), [0, 2, 4, 6, 8, 10, 12].slice(0, 6).map(function (v) { return [v, Yq(v)]; }));
+            var dA = ph(step + 0.1, step + 0.4), sh2 = step === 15 ? ph(15.2, 15.7) : 0, dd = [lerp(D1[0], D2[0], sh2), 8];
+            seg(L1, Xq(dd[0] - 8 * 0.5), Yq(0.5), Xq(dd[0] - 8 * 12), Yq(12), 1); L1.material.color.set('#4dd2ff');
+            seg(L3, Xq(-20 + 12 * 2), Yq(2), Xq(-20 + 12 * 11.5), Yq(11.5), step === 14 ? ph(14.3, 14.6) : 1);
+            if (step === 15) { seg(L2, Xq(D1[0] - 8 * 0.5), Yq(0.5), Xq(D1[0] - 8 * 12), Yq(12), 0.35); }
+            var e1 = eq(dd), ea = step === 14 ? ph(14.6, 14.8) : 1; eqD.visible = ea > 0.01; eqD.position.set(Xq(E1[1]), Yq(E1[0]), 0.05); setBar(eqH, 0, Yq(E1[0]), 0.03, Xq(E1[1]) * ea); setPost(eqV, Xq(E1[1]), 0.03, Yq(E1[0]) * ea);
+            if (step === 15) { var e2a = ph(15.6, 15.8); eqD2.visible = e2a > 0.01; eqD2.position.set(Xq(e1[1]), Yq(e1[0]), 0.06); setBar(eqH2, 0, Yq(e1[0]), 0.04, Xq(e1[1]) * e2a); setPost(eqV2, Xq(e1[1]), 0.04, Yq(e1[0]) * e2a);
+                L(lbA, Xq(E2[1]) + 1.2, Yq(E2[0]) + 0.4, 'new P* = ' + f1(E2[0]) + ', Q* = ' + f1(E2[1]), ph(15.8, 15.9), '#5cff9d'); L(lbB, Xq(110), Yq(1.6), 'demand rises →', ph(15.3, 15.4), '#4dd2ff'); }
+            else { L(lbA, Xq(E1[1]) + 1.3, Yq(E1[0]) + 0.4, 'P* = ' + f1(E1[0]) + ', Q* = ' + f1(E1[1]), ph(14.8, 14.9)); L(lbB, Xq(18), Yq(10.5), 'demand', ph(14.2, 14.3), '#4dd2ff'); L(lbC, Xq(100), Yq(10.5), 'supply', ph(14.5, 14.6), '#ffb454'); } }
+        var axOn = (step >= 3 && step <= 5) || (step >= 7 && step <= 8) || (step >= 10 && step <= 11) || (step >= 14 && step <= 15);
+        if (!axOn) axes(0, '', '', [], []);
+        buildTable();
+        var hl = []; if (step === 1) hl = [9]; if (step === 2) hl = [4]; if (step === 4) hl = [1]; if (step === 5) hl = [3]; if (step === 6) hl = [4, 5]; if (step === 11) hl = [2]; if (step === 13) hl = [3]; if (step === 15) hl = [2, 3];
+        trs.forEach(function (tr, k) { var c = hl.indexOf(k) >= 0 ? 'hl' : ''; if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step <= 1) st = '2024 GDP <b>' + f1(GY[9]) + '</b> · C share <b>' + Math.round(100 * GC[9] / GY[9]) + '%</b>';
+        else if (step === 2) st = '2020 growth <b>' + pc(GR[5]) + '</b> · 2024 growth <b>' + pc(GR[9]) + '</b>';
+        else if (step <= 5) st = 'MPC = <b>' + f2(MPC) + '</b> · break-even Y = <b>' + f1(BE) + '</b>';
+        else if (step === 6) st = 'multiplier 1 ÷ (1 − ' + f2(MPC) + ') = <b>' + f2(MULT) + '</b>';
+        else if (step === 7) st = 'I = ' + f1(IF[0]) + ' − ' + f2(-IF[1]) + 'r';
+        else if (step === 8) st = 'balanced budget at Y = <b>' + BAL + '</b>';
+        else if (step <= 11) st = 'Gini = <b>' + f2(GINI) + '</b> · top 10% <b>' + Math.round(100 * TOP10) + '%</b>';
+        else if (step <= 13) st = 'dependency ratio <b>' + DEPR.toFixed(1) + '</b>';
+        else if (step <= 15) st = 'P* ' + f1(E1[0]) + ' → <b>' + f1(E2[0]) + '</b> · Q* ' + f1(E1[1]) + ' → <b>' + f1(E2[1]) + '</b>';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var GD = [[5.8, 4.4, 14], [5.8, 2.4, 0], -1.8], WALL = [[5.6, 3.3, 14.5], [5.6, 2.8, 0], -1.9], ML = [[5.4, 3.4, 13], [5.4, 2.4, 0], -1.8];
+    var CAM = [GD, GD, GD, WALL, WALL, WALL, ML, WALL, WALL, WALL, WALL, WALL, [[6.2, 3.3, 14], [6.2, 3.0, 0], -1.6], [[6.2, 3.3, 14], [6.2, 3.0, 0], -1.6], WALL, WALL, GD];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fY", "fC", "fI", "fG", "fN"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>

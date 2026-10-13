@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sampling Distribution and Chi-Square</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    /* Layout: full-screen 3D stage, story panel (with the live formula) top-left, step bar along the bottom. Single dark look by design. */
+    :root {
+        --bg: #050510;
+        --cyan: #00ffff;
+        --amber: #ffb454;
+        --ink: #e9f6ff;
+        --muted: #8fb3c7;
+        --panel: rgba(4, 8, 22, 0.78);
+        --line: rgba(0, 255, 255, 0.35);
+        color-scheme: dark;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+           font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+
+    #ui { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+          width: min(410px, calc(100% - 32px)); box-sizing: border-box;
+          background: var(--panel); padding: 14px 16px 15px; border-radius: 10px;
+          border: 1px solid var(--line); box-shadow: 0 0 24px rgba(0,255,255,0.12);
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          pointer-events: none; z-index: 10; }
+    #chapter { font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    #status { font-size: clamp(18px, 2.6vw, 23px); font-weight: 600; line-height: 1.2; margin-bottom: 7px;
+              color: var(--cyan); text-shadow: 0 0 12px rgba(0,255,255,0.55); text-wrap: balance; }
+    #note { font-size: 13.5px; line-height: 1.5; opacity: 0.92; }
+    #mathrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 9px; padding-top: 9px;
+               border-top: 1px solid rgba(0,255,255,0.18); }
+    #formula { display: flex; align-items: center; gap: 7px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 21px; flex: none; }
+    #formula .frac { display: inline-flex; flex-direction: column; align-items: center; }
+    #formula .top { padding: 0 6px 2px; border-bottom: 1.5px solid var(--ink); }
+    #formula .bot { padding-top: 1px; }
+    #formula .bar { text-decoration: overline; }
+    #formula .p { opacity: 0.3; transition: opacity 0.4s, color 0.4s, text-shadow 0.4s; }
+    #formula .p.on { opacity: 1; color: var(--amber); text-shadow: 0 0 10px rgba(255,180,84,0.6); }
+    #formula .sym { opacity: 0.6; font-style: normal; }
+    #stats { font-size: 13.5px; line-height: 1.5; font-weight: 500; color: var(--amber); flex: 1 1 150px; min-width: 0; }
+    #stats .dim { color: var(--muted); font-weight: 400; }
+    #error { color: #ff5c5c; font-weight: 600; font-size: 13px; }
+    #error:empty { display: none; }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+    .lb { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 13px; font-weight: 500;
+          color: var(--ink); text-shadow: 0 0 4px #050510, 0 0 8px #050510, 0 1px 2px #050510; will-change: transform, opacity; }
+    .lb.tick { font-size: 11px; color: var(--muted); font-weight: 400; }
+    .lb.eq { color: var(--amber); font-weight: 600; font-size: 14px; }
+    .lb.key { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+    #bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+           padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+           background: linear-gradient(to top, rgba(5,5,16,0.92), rgba(5,5,16,0)); }
+    #progress { display: flex; gap: 3px; margin-bottom: 8px; }
+    #progress button { flex: 1; height: 18px; padding: 6px 0; margin: 0; border: 0; background: none; cursor: pointer; }
+    #progress button span { display: block; height: 4px; border-radius: 2px; background: rgba(0,255,255,0.16); overflow: hidden; }
+    #progress button i { display: block; height: 100%; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    #progress button:hover span { background: rgba(0,255,255,0.32); }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #controls button { width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+                       background: var(--panel); color: var(--cyan); cursor: pointer; display: grid; place-items: center; }
+    #controls button:hover { background: rgba(0,255,255,0.14); }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #controls svg { width: 14px; height: 14px; fill: currentColor; }
+    #hint { font-size: 12px; color: var(--muted); margin-left: 6px; }
+    @media (max-width: 560px) {
+        #ui { padding: 10px 12px 11px; }
+        #note { font-size: 12.5px; line-height: 1.4; }
+        #mathrow { margin-top: 6px; padding-top: 6px; gap: 10px; }
+        #formula { font-size: 17px; }
+        #stats { font-size: 12.5px; }
+        #hint { display: none; }
+    }
+    #tbl { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; width: min(430px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow: auto; box-sizing: border-box;
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; z-index: 9; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,255,255,0.12); }
+    #tbl .cap { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    #tbl table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #tbl th { color: var(--cyan); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid rgba(0,255,255,0.25); white-space: nowrap; }
+    #tbl td { text-align: right; padding: 3px 6px; white-space: nowrap; transition: background 0.3s, color 0.3s, opacity 0.3s; }
+    #tbl th:first-child, #tbl td:first-child { color: var(--cyan); font-weight: 600; }
+    #tbl tr.hid td { opacity: 0; }
+    #tbl tr.hl td { background: rgba(255,180,84,0.2); color: #fff; }
+    #tbl td.rh { background: rgba(0,255,255,0.13); }
+    #tbl td.ce { background: var(--amber); color: #04121c; font-weight: 700; }
+    @media (max-width: 760px) { #tbl { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); left: 16px; right: 16px; width: auto; max-height: 30vh; font-size: 11.5px; padding: 8px 10px; } }
+    @media (min-width: 761px) { #tbl { width: min(380px, calc(100% - 32px)); font-size: 12px; } }
+</style></head><body>
+
+<div id="labels"></div>
+
+<div id="ui">
+    <div id="chapter"></div>
+    <div id="status"></div>
+    <div id="note"></div>
+    <div id="mathrow">
+        <div id="formula" aria-label="Central limit theorem and the chi-square test for counts">
+            <span class="p" id="fS" style="font-size:.75em;font-style:normal">SE = σ ÷ √n</span><span class="sym" style="margin:0 8px">·</span><span class="p" id="fC" style="font-size:.75em;font-style:normal">χ² = Σ (O − E)² ÷ E</span>
+        </div>
+        <div id="stats"></div>
+    </div>
+    <div id="error"></div>
+</div>
+
+<div id="tbl"></div>
+
+<div id="bar">
+    <div id="progress"></div>
+    <div id="controls">
+        <button id="bPrev" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 14 14"><path d="M2 1h2v12H2zM13 1v12L5 7z"/></svg></button>
+        <button id="bPlay" title="Play or pause" aria-label="Play or pause"><svg viewBox="0 0 14 14"><path id="playIcon" d="M3 1h3v12H3zM8 1h3v12H8z"/></svg></button>
+        <button id="bNext" title="Next step" aria-label="Next step"><svg viewBox="0 0 14 14"><path d="M10 1h2v12h-2zM1 1v12l8-6z"/></svg></button>
+        <button id="bRestart" title="Start again" aria-label="Start again"><svg viewBox="0 0 14 14"><path d="M7 2a5 5 0 1 0 4.9 6h-1.6A3.5 3.5 0 1 1 7 3.5c1 0 1.8.4 2.4 1L7.5 6.5H12V2l-1.5 1.5A5 5 0 0 0 7 2z"/></svg></button>
+        <span id="hint">Drag to rotate · scroll to zoom · ← → to step · space to pause</span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    if (!window.THREE || !THREE.OrbitControls) { $('error').textContent = 'The 3D library did not load. Check the connection and reload.'; return; }
+
+    // ---------- scene ----------
+    var renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+    catch (e) { $('error').textContent = 'This browser could not start 3D graphics (WebGL).'; return; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x050510, 1);
+    document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x050510, 55, 130);
+    var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 300);
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxDistance = 100; controls.minDistance = 4;
+    var grid = new THREE.GridHelper(70, 70, 0x0b4a5c, 0x0a2233);
+    grid.position.set(0, -0.03, 0); scene.add(grid);
+
+    function mat(color, opacity) {
+        return new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity, side: THREE.DoubleSide, depthWrite: false });
+    }
+    var barGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+    function bar(color, thick) { var m = new THREE.Mesh(barGeo, mat(color)); if (thick) { m.scale.y = m.scale.z = thick; } scene.add(m); return m; }
+    function setBar(m, left, y, z, len) {            // horizontal bar anchored at its left end
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set(left + len / 2, y, z);
+    }
+    function setSeg(m, x1, y1, x2, y2, z) {          // bar between two points in a plane of constant z
+        var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+        m.visible = len > 0.001; m.scale.x = Math.max(len, 0.001); m.position.set((x1 + x2) / 2, (y1 + y2) / 2, z || 0); m.rotation.z = Math.atan2(dy, dx);
+    }
+    var postGeo = new THREE.BoxGeometry(0.06, 1, 0.06);
+    function post(color, thick) { var m = new THREE.Mesh(postGeo, mat(color)); if (thick) { m.scale.x = m.scale.z = thick; } scene.add(m); return m; }
+    function setPost(m, x, z, h, y0) { m.visible = h > 0.001; m.scale.y = Math.max(h, 0.001); m.position.set(x, (y0 || 0) + h / 2, z); }
+    var boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0.5, 0.5, 0.5);        // origin at the bottom corner
+    var edgeGeo = new THREE.EdgesGeometry(boxGeo);
+    function box(color, opacity, edges) {
+        var m = new THREE.Mesh(boxGeo, mat(color, opacity)); scene.add(m);
+        if (edges) m.add(new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 })));
+        return m;
+    }
+    function strip(n, color, opacity) {              // a band of n cross-sections, each with two points
+        var pos = new Float32Array(n * 6), idx = [];
+        for (var i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+        var m = new THREE.Mesh(g, mat(color, opacity)); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x1, y1, z1, x2, y2, z2) { var o = i * 6; pos[o] = x1; pos[o + 1] = y1; pos[o + 2] = z1; pos[o + 3] = x2; pos[o + 4] = y2; pos[o + 5] = z2; },
+                 done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, Math.max(0, (k === undefined ? n : k) - 1) * 6); } };
+    }
+    function polyline(n, color, opacity) {
+        var pos = new Float32Array(n * 3), g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.Line(g, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity === undefined ? 1 : opacity })); m.frustumCulled = false; scene.add(m);
+        return { m: m, set: function (i, x, y, z) { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; }, done: function (k) { g.attributes.position.needsUpdate = true; g.setDrawRange(0, k === undefined ? n : k); } };
+    }
+
+    // ---------- labels ----------
+    var labelBox = $('labels'), labels = [];
+    function label(text, x, y, z, cls, left) {
+        var el = document.createElement('div'); el.className = 'lb' + (cls ? ' ' + cls : ''); el.textContent = text;
+        labelBox.appendChild(el);
+        var o = { el: el, p: new THREE.Vector3(x, y, z), a: 0, txt: text, left: !!left }; labels.push(o); return o;
+    }
+    function setText(lb, t) { if (lb.txt !== t) { lb.txt = t; lb.el.textContent = t; } }
+
+    // ---------- timeline ----------
+    var step = 0, u = 0, playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, T = 0, clock = 0;
+    function ph(a, b) { var x = (T - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function setStats(h) { if ($('stats').innerHTML !== h) $('stats').innerHTML = h; }
+    var num = function (x, dp) { return x.toFixed(dp === undefined ? 1 : dp); };
+    var sgn = function (d, dp) { var t = Math.abs(d).toFixed(dp === undefined ? 2 : dp); return (d > 0 && +t !== 0 ? '+' : d < 0 && +t !== 0 ? '−' : '') + t; };
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var XB = '<span style="text-decoration:overline">X</span>';
+
+    // ---------- the central limit theorem and the chi-square test ----------
+    var STEPS = [
+        {
+                "t": "A skewed population",
+                "n": "Seven hundred values with a long right tail, like incomes or waiting times. Its mean μ and standard deviation σ are fixed, but the shape is far from a bell.",
+                "s": "",
+                "on": []
+        },
+        {
+                "t": "One sample, one mean",
+                "n": "Pick 5 values at random and drop them to the tray below. Their average X̄ is one estimate of μ.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Many samples of 5",
+                "n": "Repeat 90 times and pile up the means. They gather around μ, but with only 5 values each, the pile still leans right.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Many samples of 30",
+                "n": "Now each sample has 30 values. The pile of means is narrow and bell-shaped, even though the population is skewed. This is the central limit theorem.",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Bigger samples, steadier means",
+                "n": "The spread of the means shrinks with √n. Its size is the standard error σ ÷ √n. Four times more data halves it.",
+                "s": "SE = σ ÷ √n",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Why it matters",
+                "n": "Because sample means are close to normal, μ ± 1.96 SE catches about 95% of them. Confidence intervals and t tests rely on this, even for skewed data, as long as n is large enough (about 30).",
+                "s": "",
+                "on": [
+                        "fS"
+                ]
+        },
+        {
+                "t": "Counts in categories",
+                "n": "Now a different kind of data: counts. 200 taxpayers report how they pay: bank, online, tax office or agent. Each tower is an observed count O.",
+                "s": "",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "What H₀ expects",
+                "n": "H₀: the shares are the same as last year (30%, 30%, 25%, 15%). The white frames show the expected counts E = share × 200.",
+                "s": "E = share × n",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "The gaps",
+                "n": "For each category, O − E is the gap between what we saw and what H₀ expects. Amber is above, pink below.",
+                "s": "",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Square, scale, add",
+                "n": "Square each gap and divide by E, so a gap of 10 counts more when only 30 were expected. The pieces stack into one number: χ².",
+                "s": "χ² = Σ (O − E)² ÷ E",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "The chi-square curve",
+                "n": "If H₀ were true, χ² would follow this curve with k − 1 = 3 degrees of freedom. The shaded right tail beyond our χ² is the p-value.",
+                "s": "df = categories − 1",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Decision",
+                "n": "The p-value is above 0.05, so we do not reject H₀: the mix of payment channels has not clearly changed. Rule: every expected count should be at least 5.",
+                "s": "",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Two variables: a two-way table",
+                "n": "Do urban and rural taxpayers use different channels? Rows are areas, columns are channels. The white frames are the counts expected if channel did not depend on area.",
+                "s": "E = row total × column total ÷ n",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Chi-square test of independence",
+                "n": "Add (O − E)² ÷ E over all six cells. With (2 − 1)(3 − 1) = 2 degrees of freedom, χ² is huge and p is tiny: channel depends on area. Urban taxpayers favour online, rural ones the tax office.",
+                "s": "df = (r − 1)(c − 1)",
+                "on": [
+                        "fC"
+                ]
+        },
+        {
+                "t": "Summary",
+                "n": "Means of large samples are close to normal (CLT), which makes intervals and t tests work. For counts, compare observed with expected using χ²: goodness of fit for one variable, independence for two.",
+                "s": "",
+                "on": [
+                        "fS",
+                        "fC"
+                ]
+        }
+];
+    var NS = STEPS.length, DUR = 8, HOLD = 0;
+    var f1 = function (v) { return v.toFixed(1); }, f2 = function (v) { return v.toFixed(2); };
+    function mean(a) { return a.reduce(function (p, c) { return p + c; }, 0) / a.length; }
+    function sdp(a) { var m = mean(a); return Math.sqrt(a.reduce(function (p, c) { return p + (c - m) * (c - m); }, 0) / a.length); }
+    function lgam(x) { var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5], y = x, tmp = x + 5.5; tmp -= (x + 0.5) * Math.log(tmp); var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y; return -tmp + Math.log(2.5066282746310005 * s / x); }
+    function gammq(a, x) { var gln = lgam(a), n, sum, del, ap; if (x < a + 1) { ap = a; sum = del = 1 / a; for (n = 0; n < 300; n++) { ap++; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 3e-12) break; } return 1 - sum * Math.exp(-x + a * Math.log(x) - gln); }
+        var b = x + 1 - a, c = 1e30, d = 1 / b, h = d; for (var i = 1; i < 300; i++) { var an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-30) d = 1e-30; c = b + an / c; if (Math.abs(c) < 1e-30) c = 1e-30; d = 1 / d; del = d * c; h *= del; if (Math.abs(del - 1) < 3e-12) break; } return Math.exp(-x + a * Math.log(x) - gln) * h; }
+    var pC = function (x, df) { return gammq(df / 2, x / 2); }, chipdf = function (x, k) { return x <= 0 ? 0 : Math.exp((k / 2 - 1) * Math.log(x) - x / 2 - (k / 2) * Math.log(2) - lgam(k / 2)); };
+    var pfmt = function (p) { return p < 0.001 ? '< 0.001' : p.toFixed(3); };
+    var r0 = rng(23), U = function () { return r0(); }, gauss = function () { return Math.sqrt(-2 * Math.log(U() + 1e-9)) * Math.cos(2 * Math.PI * U()); };
+    // ----- a right-skewed population (gamma, shape 2) -----
+    var NP = 700, PVALS = []; for (var i0 = 0; i0 < NP; i0++) PVALS.push(Math.min(118, -15 * Math.log((U() + 1e-9) * (U() + 1e-9))));
+    var MU = mean(PVALS), SIG = sdp(PVALS);
+    function draw(n) { var s = []; for (var k = 0; k < n; k++) s.push(Math.floor(U() * NP)); return s; }
+    var S5 = [], M5 = [], M30 = []; for (var k0 = 0; k0 < 90; k0++) { var s5 = draw(5); S5.push(s5); M5.push(mean(s5.map(function (j) { return PVALS[j]; }))); M30.push(mean(draw(30).map(function (j) { return PVALS[j]; }))); }
+    var SD5 = sdp(M5), SD30 = sdp(M30), IN95 = M30.filter(function (m) { return Math.abs(m - MU) <= 1.96 * SIG / Math.sqrt(30); }).length;
+    var XV = function (v) { return v * 0.09; }, PZ = -3.2, TZ = 1.2;
+    grid.position.set(5.5, -0.03, -1);
+    // population crowd, drawn as a histogram-shaped cloud
+    var pos = new Float32Array(NP * 3), colA = new Float32Array(NP * 3), pb = {};
+    PVALS.forEach(function (v, i) { var b = Math.floor(v / 3), k = pb[b] || 0; pb[b] = k + 1; pos[i * 3] = XV(v); pos[i * 3 + 1] = 0.1 + k * 0.07; pos[i * 3 + 2] = PZ + (U() - 0.5) * 1.4; colA[i * 3] = 0.3; colA[i * 3 + 1] = 0.82; colA[i * 3 + 2] = 1; });
+    var pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(colA, 3));
+    var popPts = new THREE.Points(pg, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, opacity: 0, depthWrite: false })); scene.add(popPts);
+    var muL = post('#ffffff', 1.4), lbPop = label('', 0, 0, PZ, 'key');
+    var TKS = [], tickGeo = new THREE.BoxGeometry(0.04, 0.3, 0.04), axP = bar('#3c6d80', 0.5), axT = bar('#3c6d80', 0.5), tl = [];
+    setBar(axP, 0, 0, PZ + 0.8, XV(120)); setBar(axT, 0, 0, TZ, XV(120));
+    for (var v = 0; v <= 120; v += 20) { [PZ + 0.8, TZ].forEach(function (z) { var t = new THREE.Mesh(tickGeo, mat('#5d9ab3')); t.position.set(XV(v), 0, z); scene.add(t); TKS.push(t); }); tl.push(label(String(v), XV(v), -0.35, TZ + 0.3, 'tick')); }
+    // sample highlight and the pile of means
+    var sph = new THREE.SphereGeometry(0.14, 14, 10), smp = []; for (var j0 = 0; j0 < 5; j0++) { var m = new THREE.Mesh(sph, mat('#ffffff')); m.visible = false; scene.add(m); smp.push(m); }
+    var xbar = post('#ffb454', 1.6), lbX = label('', 0, 0, TZ, 'eq');
+    var msph = new THREE.SphereGeometry(0.1, 10, 8);
+    function pile(arr, col) { var bins = {}; return arr.map(function (mv) { var b = Math.round(mv / 2) * 2, k = bins[b] || 0; bins[b] = k + 1; var m = new THREE.Mesh(msph, mat(col)); m.visible = false; scene.add(m); return { m: m, x: XV(b), y: 0.12 + k * 0.21, v: mv }; }); }
+    var P5 = pile(M5, '#ffb454'), P30 = pile(M30, '#5cff9d');
+    var nc = polyline(80, '#5cff9d'), nc5 = polyline(80, '#ffb454'), band = strip(30, '#5cff9d', 0);
+    // ----- chi-square: goodness of fit -----
+    var CATS = ['bank', 'online', 'tax office', 'agent'], OBS = [62, 71, 38, 29], SH = [0.30, 0.30, 0.25, 0.15], NTOT = 200, EXP = SH.map(function (s) { return s * NTOT; });
+    var CONT = OBS.map(function (o, k) { return (o - EXP[k]) * (o - EXP[k]) / EXP[k]; }), CHI = CONT.reduce(function (p, c) { return p + c; }, 0), DF = 3, PV = pC(CHI, DF), CRIT = 7.815;
+    var CX = function (k) { return 1.4 + k * 2.3; }, HS = 0.055, CC = ['#4dd2ff', '#ffb454', '#5cff9d', '#b388ff'];
+    var ob = OBS.map(function (o, k) { return box(CC[k], 0.8, true); }), ex = OBS.map(function () { return box('#ffffff', 0.06, true); }), gap = OBS.map(function () { return post('#ff5c8a', 2.2); });
+    var blk = OBS.map(function (o, k) { return box(CC[k], 0.85, true); }), lbO = OBS.map(function () { return label('', 0, 0, 0, 'eq'); }), lbE = OBS.map(function () { return label('', 0, 0, 0, ''); }), lbN = CATS.map(function (c, k) { var l = label(c, 0, 0, 0, 'tick'); l.el.style.color = CC[k]; return l; }), lbCt = OBS.map(function () { return label('', 0, 0, 0, ''); });
+    var TOWX = 10.6;
+    // chi-square curve
+    var KX = function (x) { return 0.8 + x * 0.42; }, KH = 14, kc = polyline(121, '#00ffff'), kfill = strip(121, '#00ffff', 0), ktail = strip(41, '#ffb454', 0), kcrit = post('#ffffff', 1.2), kmark = post('#ffb454', 1.8), kax = bar('#3c6d80', 0.5), kT = [];
+    for (var kt = 0; kt <= 24; kt += 4) kT.push(label(String(kt), KX(kt), -0.35, 0, 'tick'));
+    // ----- chi-square: independence (two-way table) -----
+    var ROWS = ['urban', 'rural'], COLS = ['online', 'bank', 'office'], O2 = [[58, 40, 22], [13, 22, 45]];
+    var RT = O2.map(function (r) { return r[0] + r[1] + r[2]; }), CT = [0, 1, 2].map(function (c) { return O2[0][c] + O2[1][c]; }), N2 = RT[0] + RT[1];
+    var E2 = O2.map(function (r, i) { return r.map(function (_, c) { return RT[i] * CT[c] / N2; }); }), CH2 = 0; O2.forEach(function (r, i) { r.forEach(function (o, c) { CH2 += (o - E2[i][c]) * (o - E2[i][c]) / E2[i][c]; }); }); var P2 = pC(CH2, 2);
+    var GX = function (c, r) { return 1.0 + c * 1.6 + (r || 0) * 5.6; }, GZ = function (r) { return 0; };
+    var o2 = [], e2 = [], l2 = [];
+    for (var a = 0; a < 2; a++) for (var c = 0; c < 3; c++) { o2.push(box(['#4dd2ff', '#ffb454', '#5cff9d'][c], 0.8, true)); e2.push(box('#ffffff', 0.06, true)); l2.push(label('', 0, 0, 0, 'eq')); }
+    var lbR = ROWS.map(function (r) { return label(r, 0, 0, 0, 'key'); }), lbC2 = COLS.concat(COLS).map(function (c) { return label(c, 0, 0, 0, 'tick'); });
+    var lbA = label('', 0, 0, 0, 'key'), lbB = label('', 0, 0, 0, ''); lbA.el.style.fontSize = '16px';
+
+    // ----- table -----
+    var tKey = -1, trs = [];
+    function card(cap, head, rows) { $('tbl').innerHTML = '<div class="cap">' + cap + '</div><table>' + (head ? '<thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' : '') + '<tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; trs = [].slice.call($('tbl').querySelectorAll('tbody tr')); }
+    function buildTable() {
+        var k = step <= 5 ? 0 : step <= 11 ? 1 : 2; if (k === tKey) return; tKey = k;
+        if (k === 0) card('Population and sample means', ['', 'value'], [['population mean μ', f1(MU)], ['population SD σ', f1(SIG)], ['SD of 90 means, n = 5', f1(SD5)], ['σ ÷ √5', f1(SIG / Math.sqrt(5))], ['SD of 90 means, n = 30', f1(SD30)], ['σ ÷ √30 (standard error)', f1(SIG / Math.sqrt(30))], ['means within μ ± 1.96 SE', IN95 + ' of 90 (' + Math.round(100 * IN95 / 90) + '%)']]);
+        else if (k === 1) card('Goodness of fit: payment channel of 200 taxpayers', ['channel', 'O', 'E', 'O − E', '(O − E)² ÷ E'], OBS.map(function (o, k) { return [CATS[k], String(o), f1(EXP[k]), (o - EXP[k] >= 0 ? '+' : '−') + Math.abs(o - EXP[k]).toFixed(0), f2(CONT[k])]; }).concat([['total', '200', '200', '0', '<b>' + f2(CHI) + '</b>']]));
+        else card('Independence: area × channel (O, with E in brackets)', ['', 'online', 'bank', 'office', 'total'], O2.map(function (r, i) { return [ROWS[i]].concat(r.map(function (o, c) { return o + ' (' + f1(E2[i][c]) + ')'; })).concat([String(RT[i])]); }).concat([['total'].concat(CT.map(String)).concat([String(N2)])]));
+    }
+
+    function update() {
+        var i, k, w = T - step;
+        var vis = function (a, b) { return ph(a + 0.05, a + 0.3) * (1 - ph(b, b + 0.1)); };
+        // ----- CLT -----
+        var popA = ph(0.05, 0.6) * (1 - ph(6.0, 6.2)); popPts.material.opacity = 0.8 * popA; popPts.visible = popA > 0.01;
+        axP.visible = axT.visible = popA > 0.01; TKS.forEach(function (t) { t.visible = popA > 0.01; }); tl.forEach(function (l) { l.a = 0.8 * popA; });
+        setPost(muL, XV(MU), PZ, 3.6 * popA); lbPop.p.set(XV(MU), 3.9, PZ); lbPop.a = popA; setText(lbPop, 'μ = ' + f1(MU) + ' · σ = ' + f1(SIG) + ' · skewed right');
+        // one sample of 5 (step 1)
+        var sa = vis(1, 2), drop = ph(1.3, 1.7);
+        S5[0].forEach(function (j, k) { var m = smp[k], x = pos[j * 3], y = pos[j * 3 + 1], z = pos[j * 3 + 2]; m.visible = sa > 0.01 && ph(1.05 + k * 0.04, 1.1 + k * 0.04) > 0; m.position.set(x, lerp(y, 0.3, drop), lerp(z, TZ, drop)); });
+        setPost(xbar, XV(M5[0]), TZ, 1.2 * vis(1, 2) * ph(1.7, 1.85)); lbX.p.set(XV(M5[0]), 1.6, TZ); lbX.a = vis(1, 2) * ph(1.75, 1.9); setText(lbX, 'X̄ = ' + f1(M5[0]));
+        // piles
+        var p5 = (step === 2 || step === 4) ? 1 : 0, p30 = (step >= 3 && step <= 5) ? 1 : 0;
+        P5.forEach(function (d, k) { var a = step === 2 ? ph(2.1 + k * 0.008, 2.15 + k * 0.008) : step === 4 ? 0.45 : 0; d.m.visible = a > 0.01; d.m.material.opacity = a; d.m.position.set(d.x, d.y, TZ + (step === 4 ? -0.6 : 0)); });
+        P30.forEach(function (d, k) { var a = step === 3 ? ph(3.1 + k * 0.008, 3.15 + k * 0.008) : (step === 4 || step === 5) ? 1 : 0; d.m.visible = a > 0.01; d.m.material.opacity = a; d.m.position.set(d.x, d.y, TZ); });
+        function curve(pl, mu, sd, z, a) { for (var q = 0; q < 80; q++) { var x = mu - 4 * sd + 8 * sd * q / 79; pl.set(q, XV(x), 0.12 + 90 * 2 / (sd * Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * Math.pow((x - mu) / sd, 2)) * 0.21, z); } pl.done(); pl.m.visible = a > 0.01; pl.m.material.opacity = a; }
+        curve(nc, MU, SIG / Math.sqrt(30), TZ, (step === 3 ? ph(3.7, 3.85) : 0) + (step >= 4 && step <= 5 ? 1 : 0));
+        curve(nc5, MU, SIG / Math.sqrt(5), TZ - 0.6, step === 4 ? ph(4.2, 4.4) : 0);
+        var bA = vis(5, 6) * ph(5.2, 5.5), se = SIG / Math.sqrt(30); band.m.visible = bA > 0.01; band.m.material.opacity = 0.18 * bA;
+        for (k = 0; k < 30; k++) { var xx = MU - 1.96 * se + 3.92 * se * k / 29; band.set(k, XV(xx), 0.02, TZ - 0.4, XV(xx), 0.02, TZ + 0.4); } band.done();
+        // ----- chi-square goodness of fit -----
+        var g0 = ph(6.1, 6.5) * (1 - ph(12.0, 12.2)), towers = g0 * (1 - ph(10.0, 10.2) * (step < 12 ? 0.85 : 1));
+        OBS.forEach(function (o, k) {
+            var a = towers * ph(6.15 + k * 0.08, 6.4 + k * 0.08); ob[k].visible = a > 0.01; ob[k].material.opacity = 0.8 * a; ob[k].children[0].material.opacity = 0.5 * a; ob[k].scale.set(1.0, Math.max(o * HS * a, 0.01), 1.0); ob[k].position.set(CX(k) - 0.5, 0, -0.5);
+            var ea = towers * ph(7.1 + k * 0.06, 7.35 + k * 0.06); ex[k].visible = ea > 0.01; ex[k].material.opacity = 0.08 * ea; ex[k].children[0].material.opacity = 0.9 * ea; ex[k].scale.set(1.2, Math.max(EXP[k] * HS, 0.01), 1.2); ex[k].position.set(CX(k) - 0.6, 0, -0.6);
+            var ga = towers * (step >= 8 ? ph(8.15 + k * 0.08, 8.35 + k * 0.08) : 0); setPost(gap[k], CX(k) + 0.75, 0, Math.abs(o - EXP[k]) * HS * ga, Math.min(o, EXP[k]) * HS); gap[k].material.color.set(o >= EXP[k] ? '#ffb454' : '#ff5c8a');
+            lbN[k].p.set(CX(k), -0.35, 0.4); lbN[k].a = towers; lbO[k].p.set(CX(k) - 0.2, o * HS + 0.35, 0); lbO[k].a = towers * ph(6.5, 6.6); setText(lbO[k], 'O = ' + o);
+            lbE[k].p.set(CX(k) + 0.2, EXP[k] * HS + 0.75, -0.6); lbE[k].a = towers * ph(7.4, 7.5) * (step >= 7 ? 1 : 0); setText(lbE[k], 'E = ' + EXP[k]);
+            // contribution blocks fly to one tower
+            var ca = step === 9 ? ph(9.1 + k * 0.1, 9.35 + k * 0.1) : step === 10 || step === 11 ? 1 : 0, below = 0; for (var q = 0; q < k; q++) below += CONT[q];
+            blk[k].visible = ca > 0.01 && step < 12; blk[k].material.opacity = 0.85; blk[k].scale.set(0.9, Math.max(CONT[k] * 0.45, 0.01), 0.9);
+            blk[k].position.set(lerp(CX(k) - 0.45, TOWX - 0.45, ca), lerp(o * HS + 0.6, below * 0.45, ca), lerp(0.6, -0.5, ca));
+            lbCt[k].p.set(TOWX + 0.8, (below + CONT[k] / 2) * 0.45, -0.5); lbCt[k].a = step === 9 ? ph(9.5 + k * 0.1, 9.6 + k * 0.1) : 0; setText(lbCt[k], CATS[k] + ': ' + f2(CONT[k]));
+        });
+        // chi-square curve (step 10–11): drawn in front
+        var ka = vis(10, 12) * ph(10.2, 10.6), top = chipdf(1, 3);
+        for (k = 0; k <= 120; k++) { var x = 24 * k / 120, hh = chipdf(x, DF) / 0.25 * 3.2; kc.set(k, KX(x), hh, 2.0); kfill.set(k, KX(x), hh, 1.98, KX(x), 0, 1.98); }
+        kc.done(); kfill.done(); kc.m.visible = ka > 0.01; kc.m.material.opacity = ka; kfill.m.material.opacity = 0.12 * ka; setBar(kax, KX(0), 0, 2.0, KX(24) - KX(0)); kax.visible = ka > 0.01; kT.forEach(function (l) { l.p.z = 2.0; l.a = 0.8 * ka; });
+        for (k = 0; k <= 40; k++) { var xt = CHI + (24 - CHI) * k / 40, ht = chipdf(xt, DF) / 0.25 * 3.2; ktail.set(k, KX(xt), ht, 2.02, KX(xt), 0, 2.02); } ktail.done(); ktail.m.visible = ka > 0.01; ktail.m.material.opacity = 0.6 * ka * ph(10.6, 10.8);
+        setPost(kcrit, KX(CRIT), 2.02, 1.6 * ka * ph(10.8, 10.9)); setPost(kmark, KX(CHI), 2.03, (chipdf(CHI, DF) / 0.25 * 3.2 + 0.8) * ka * ph(10.4, 10.6));
+        // ----- independence -----
+        var ia = ph(12.1, 12.5);
+        for (var r = 0; r < 2; r++) for (c = 0; c < 3; c++) { var n = r * 3 + c, a2 = ia * ph(12.15 + n * 0.05, 12.35 + n * 0.05), o = O2[r][c], e = E2[r][c];
+            o2[n].visible = a2 > 0.01; o2[n].material.opacity = 0.8 * a2; o2[n].children[0].material.opacity = 0.5 * a2; o2[n].scale.set(1.0, Math.max(o * HS * a2, 0.01), 1.0); o2[n].position.set(GX(c, r) - 0.5, 0, GZ(r) - 0.5);
+            var ea2 = ia * ph(12.6, 12.8); e2[n].visible = ea2 > 0.01; e2[n].material.opacity = 0.08 * ea2; e2[n].children[0].material.opacity = 0.9 * ea2; e2[n].scale.set(1.2, Math.max(e * HS, 0.01), 1.2); e2[n].position.set(GX(c, r) - 0.6, 0, GZ(r) - 0.6);
+            l2[n].p.set(GX(c, r), Math.max(o, e) * HS + 0.4 + (c % 2) * 0.35, GZ(r)); lbC2[n] && 0; l2[n].a = ia * ph(12.8, 12.9); setText(l2[n], o + ' vs ' + f1(e)); }
+        lbR.forEach(function (l, r) { l.p.set(GX(1, r), -0.85, 0.7); l.a = ia; }); lbC2.forEach(function (l, n) { l.p.set(GX(n % 3, Math.floor(n / 3)), -0.35, 0.7); l.a = ia; });
+        // ----- labels -----
+        lbA.a = lbB.a = 0;
+        var L = function (lb, x, y, z, t, a, col) { lb.p.set(x, y, z); lb.a = a; setText(lb, t); lb.el.style.color = col || ''; };
+        if (step === 2) L(lbA, XV(70), 3.0, TZ, '90 means of n = 5: still skewed', ph(2.8, 2.95), '#ffb454');
+        if (step === 3) L(lbA, XV(70), 3.4, TZ, '90 means of n = 30: a bell', ph(3.8, 3.95), '#5cff9d');
+        if (step === 4) { L(lbA, XV(72), 3.4, TZ, 'n = 30: SD ' + f1(SD30), 1, '#5cff9d'); L(lbB, XV(72), 1.6, TZ - 0.6, 'n = 5: SD ' + f1(SD5), ph(4.4, 4.55), '#ffb454'); }
+        if (step === 5) L(lbA, XV(MU), 4.0, TZ, 'μ ± 1.96 × SE holds ' + Math.round(100 * IN95 / 90) + '% of the means', ph(5.5, 5.65), '#5cff9d');
+        if (step === 9) L(lbA, TOWX, CHI * 0.45 + 0.6, -0.5, 'χ² = ' + f2(CHI), ph(9.6, 9.75), '#00ffff');
+        if (step === 10 || step === 11) { L(lbA, KX(CHI), chipdf(CHI, DF) / 0.25 * 3.2 + 1.15, 2.0, 'χ² = ' + f2(CHI), ph(10.6, 10.7), '#ffb454'); L(lbB, KX(CRIT), 1.9, 2.0, '5% cut-off 7.81', ph(10.9, 11.0)); }
+        if (step === 13) L(lbA, GX(1, 1), 5.0, 0, 'χ² = ' + f1(CH2) + ' · df = 2 · p ' + pfmt(P2), ph(13.3, 13.45), '#ffb454');
+        buildTable();
+        var hl = []; if (step === 4) hl = [2, 3, 4, 5]; if (step === 5) hl = [6]; if (step === 8) hl = [0, 1, 2, 3]; if (step === 9 || step === 10) hl = [4]; if (step === 13) hl = [];
+        trs.forEach(function (tr, k) { var c = hl.indexOf(k) >= 0 ? 'hl' : ''; if (tr.className !== c) tr.className = c; });
+        var st = '';
+        if (step === 0) st = 'μ = <b>' + f1(MU) + '</b> · σ = <b>' + f1(SIG) + '</b>';
+        else if (step === 1) st = 'one sample of 5 · X̄ = <b>' + f1(M5[0]) + '</b>';
+        else if (step === 4) st = 'SD of means: n = 5 → <b>' + f1(SD5) + '</b> · n = 30 → <b>' + f1(SD30) + '</b> (σ ÷ √30 = ' + f1(SIG / Math.sqrt(30)) + ')';
+        else if (step === 5) st = '<b>' + IN95 + '</b> of 90 means within μ ± 1.96 SE';
+        else if (step === 9) st = 'χ² = Σ (O − E)² ÷ E = <b>' + f2(CHI) + '</b>';
+        else if (step === 10 || step === 11) st = 'χ²(3) = <b>' + f2(CHI) + '</b> · p = <b>' + pfmt(PV) + '</b> · ' + (PV < 0.05 ? 'reject H₀' : 'do not reject H₀');
+        else if (step === 13) st = 'χ²(2) = <b>' + f1(CH2) + '</b> · p <b>' + pfmt(P2) + '</b> · reject H₀: channel depends on area';
+        setStats(st);
+    }
+    // ---------- camera ----------
+    var CL = [[5.4, 6.5, 12.5], [5.4, 1.4, -0.8], -1.4], TR = [[5.4, 5.5, 11.5], [5.4, 1.2, 0.6], -1.4], CH = [[6.2, 5.2, 12.5], [6.2, 1.8, 0], -1.4], CK = [[6.2, 4.5, 13], [6.2, 1.8, 0.8], -1.4], TW = [[6.4, 5.5, 15.5], [6.4, 1.8, 0], -2.8];
+    var CAM = [CL, CL, TR, TR, TR, TR, CH, CH, CH, CH, CK, CK, TW, TW, TW];
+    var tw = null;
+    function preset(s) {
+        var p = new THREE.Vector3().fromArray(CAM[s][0]), tg = new THREE.Vector3().fromArray(CAM[s][1]);
+        var kk = Math.min(2.8, Math.max(1, 1.55 / camera.aspect));
+        var out = { p: tg.clone().add(p.sub(tg).multiplyScalar(kk)), t: tg };
+        if (camera.aspect > 1.25) { var off = CAM[s][2] === undefined ? 2.2 : CAM[s][2]; out.p.x -= off; out.t.x -= off; }   // keep the wall clear of the story panel
+        return out;
+    }
+    function flyTo(s, instant) {
+        var d = preset(s);
+        if (instant) { camera.position.copy(d.p); controls.target.copy(d.t); tw = null; return; }
+        tw = { p0: camera.position.clone(), t0: controls.target.clone(), p1: d.p, t1: d.t, x: 0 };
+    }
+    controls.addEventListener('start', function () { tw = null; });
+
+    // ---------- ui ----------
+    var segs = [], parts = ["fS", "fC"];
+    STEPS.forEach(function (st, i) {
+        var bt = document.createElement('button'); bt.title = (i + 1) + '. ' + st.t; bt.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + st.t);
+        bt.innerHTML = '<span><i></i></span>'; bt.onclick = function () { go(i); };
+        $('progress').appendChild(bt); segs.push(bt.querySelector('i'));
+    });
+    function showStep() {
+        var st = STEPS[step];
+        $('chapter').textContent = 'Step ' + (step + 1) + ' of ' + NS;
+        $('status').textContent = st.t; $('note').textContent = st.n; $('stats').innerHTML = st.s;
+        parts.forEach(function (id) { $(id).classList.toggle('on', st.on.indexOf(id) >= 0); });
+    }
+    function setPlay(p) {
+        playing = p;
+        $('playIcon').setAttribute('d', p ? 'M3 1h3v12H3zM8 1h3v12H8z' : 'M3 1v12l9-6z');
+    }
+    function go(s) { step = Math.max(0, Math.min(NS - 1, s)); u = 0; showStep(); flyTo(step); setPlay(true); }
+    $('bPrev').onclick = function () { go(u > 0.15 || step === 0 ? step : step - 1); };
+    $('bNext').onclick = function () { if (step < NS - 1) go(step + 1); else { u = 1; } };
+    $('bRestart').onclick = function () { go(0); };
+    $('bPlay').onclick = function () { if (!playing && step === NS - 1 && u >= 1) go(0); else setPlay(!playing); };
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') $('bNext').onclick();
+        else if (e.key === 'ArrowLeft') $('bPrev').onclick();
+        else if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('bPlay').onclick(); }
+    });
+
+    function resize() {
+        var w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize); resize();
+    showStep(); setPlay(playing); flyTo(0, true);
+    if (!playing) u = 1;      // reduced motion: show each step finished, advance by hand
+
+    var v3 = new THREE.Vector3(), last = performance.now();
+    function frame(now) {
+        requestAnimationFrame(frame);
+        var dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt;
+        if (playing) {
+            u += dt / (DUR + HOLD);
+            if (u >= 1) { if (step < NS - 1) { step++; u = 0; showStep(); flyTo(step); } else { u = 1; setPlay(false); } }
+        }
+        T = step + Math.min(u * (DUR + HOLD) / DUR, 0.9999);
+        update();
+        if (tw) {
+            tw.x = Math.min(1, tw.x + dt / 1.5); var e = tw.x * tw.x * (3 - 2 * tw.x);
+            camera.position.lerpVectors(tw.p0, tw.p1, e); controls.target.lerpVectors(tw.t0, tw.t1, e);
+            if (tw.x >= 1) tw = null;
+        }
+        controls.update();
+        renderer.render(scene, camera);
+
+        for (var i = 0; i < segs.length; i++) segs[i].style.width = (i < step ? 100 : i === step ? u * 100 : 0) + '%';
+        var w = window.innerWidth, h = window.innerHeight;
+        for (i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            v3.copy(lb.p).project(camera);
+            var show = lb.a > 0.01 && v3.z < 1 && v3.z > -1;
+            lb.el.style.opacity = show ? lb.a : 0;
+            if (show) lb.el.style.transform = 'translate(' + ((v3.x + 1) / 2 * w).toFixed(1) + 'px,' + ((1 - v3.y) / 2 * h).toFixed(1) + 'px) translate(' + (lb.left ? '0' : '-50%') + ',-50%)';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
